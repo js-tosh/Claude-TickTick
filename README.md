@@ -49,11 +49,20 @@ npm run preview    # serve dist/ locally
 
 ## Host the web app for free (GitHub Pages)
 
-The repository already contains `.github/workflows/deploy-pages.yml`.
+The repository already contains `.github/workflows/deploy-pages.yml`, which
+builds and publishes on every push to `main`.
+
+One switch has to be flipped by hand first, because the Actions token is not
+allowed to create a Pages site on its own:
 
 1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Push to `main` (or run the workflow manually from the Actions tab).
-3. The app is live at `https://<your-user>.github.io/<repo-name>/`.
+2. Re-run the latest "Deploy to GitHub Pages" workflow from the Actions tab
+   (or push any commit to `main`).
+3. The app is live at `https://<your-user>.github.io/<repo-name>/` — for this
+   repository, <https://js-tosh.github.io/Claude-TickTick/>.
+
+Until step 1 is done the build job passes and the deploy job fails with a 404
+that says "Ensure GitHub Pages has been enabled". That is the expected message.
 
 Share that link with family. On a phone, "Add to Home Screen" installs it like an
 app and it keeps working offline. Each person's tasks stay in their own browser.
