@@ -1,5 +1,5 @@
 import type { List, Task } from '../db/types';
-import { formatDueLabel, relativeBucket } from '../lib/dates';
+import { formatDueLabel, formatTime, relativeBucket } from '../lib/dates';
 import { setTaskDone } from '../db/repo';
 import { ChevronIcon, RepeatIcon } from './Icons';
 
@@ -13,9 +13,11 @@ interface Props {
   onToggleExpand?: () => void;
   onSelect: (id: string) => void;
   depth?: number;
+  /** 'time' shows only the due time (the calendar already shows the day). */
+  dueStyle?: 'full' | 'time';
 }
 
-export function TaskRow({ task, subtasks = [], list, showList, selected, expanded, onToggleExpand, onSelect, depth = 0 }: Props) {
+export function TaskRow({ task, subtasks = [], list, showList, selected, expanded, onToggleExpand, onSelect, depth = 0, dueStyle = 'full' }: Props) {
   const done = task.status === 'done';
   const openSubs = subtasks.filter((s) => s.status === 'open').length;
   const bucket = task.dueDate ? relativeBucket(task.dueDate) : null;
@@ -62,9 +64,15 @@ export function TaskRow({ task, subtasks = [], list, showList, selected, expande
       <div className="task-main">
         <div className="task-title">{task.title}</div>
         <div className="task-meta">
-          {task.dueDate && (
+          {task.dueDate && dueStyle === 'full' && (
             <span className={`meta-chip due ${bucket ?? ''}`}>
               {formatDueLabel(task.dueDate, task.dueTime)}
+              {task.repeat !== 'none' && <RepeatIcon size={12} />}
+            </span>
+          )}
+          {task.dueDate && dueStyle === 'time' && (task.dueTime || task.repeat !== 'none') && (
+            <span className="meta-chip due">
+              {task.dueTime ? formatTime(task.dueTime) : null}
               {task.repeat !== 'none' && <RepeatIcon size={12} />}
             </span>
           )}

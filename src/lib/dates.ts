@@ -99,7 +99,7 @@ export function nextOccurrence(key: string, repeat: Repeat, now: Date = new Date
   // (so completing a long-overdue daily task doesn't create another overdue one).
   for (let i = 0; i < 1000; i++) {
     d = step(d, repeat);
-    if (d > today || (repeat === 'weekdays' && d >= today && i > 0)) break;
+    if (d > today) break;
   }
   return dateKey(d);
 }

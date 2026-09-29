@@ -38,4 +38,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Alarms for the focus timer and habit reminders ring on time, even when the phone is idle.
+         USE_EXACT_ALARM is granted automatically on Android 13+ (this app is a timer/reminder app
+         and is installed directly, not through the Play Store). -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Short buzz when a habit is checked in and when the timer rings in the foreground. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

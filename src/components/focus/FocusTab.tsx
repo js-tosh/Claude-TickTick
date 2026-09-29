@@ -1,0 +1,269 @@
+import { useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { format } from 'date-fns';
+import { db } from '../../db/db';
+import { deleteFocusSession } from '../../db/focus';
+import { useToday } from '../../hooks/useToday';
+import { computeFocusStats, recentActivities } from '../../lib/focusStats';
+import { isNative } from '../../lib/platform';
+import {
+  FOCUS_MIN,
+  finishTotals,
+  formatClock,
+  formatDuration,
+  formatMinutes,
+  phaseAt,
+  phaseRemaining,
+  sessionRemaining,
+} from '../../lib/pomodoro';
+import {
+  askRating,
+  pauseFocus,
+  resumeFocus,
+  skipFocusPhase,
+  startFocus,
+  stopFocus,
+  useFocusTimer,
+} from '../../state/focusTimer';
+import { useUI } from '../../state/ui';
+import { CalendarIcon, MoreIcon, PauseIcon, PlayIcon, SkipIcon, StarIcon, StopIcon } from '../Icons';
+import { Menu } from '../Menu';
+import { ScheduleDialog } from './ScheduleDialog';
+import { TimerRing } from './TimerRing';
+
+const MIN = 60_000;
+
+export function FocusTab() {
+  const { timer, now, lastActivity, alarmsAsNotifications } = useFocusTimer();
+  const sessions = useLiveQuery(() => db.focusSessions.orderBy('startedAt').reverse().toArray(), []);
+  const [activity, setActivity] = useState(lastActivity);
+  const [scheduling, setScheduling] = useState(false);
+  const { showToast, openDialog } = useUI();
+  const today = useToday();
+
+  const phase = timer ? phaseAt(timer, timer.phaseIndex) : null;
+  const remaining = timer ? phaseRemaining(timer, now) : FOCUS_MIN * MIN;
+  const progress = timer && phase ? 1 - remaining / phase.ms : 0;
+  const paused = !!timer && timer.pausedAt !== null;
+  const sessionLeft = timer ? sessionRemaining(timer, now) : null;
+  const liveFocusMs = timer ? finishTotals(timer, now).focusMs : 0;
+
+  const stats = useMemo(
+    () => computeFocusStats(sessions ?? [], new Date()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sessions, today],
+  );
+  const recent = useMemo(() => recentActivities(sessions ?? []), [sessions]);
+
+  const onStop = async () => {
+    const r = await stopFocus();
+    if (r === 'discarded') showToast('Sessions shorter than a minute are not saved');
+  };
+
+  const confirmDelete = (id: string, name: string) =>
+    openDialog({
+      kind: 'confirm',
+      title: 'Delete this session?',
+      message: `The "${name}" session will be removed from your focus history.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: () => deleteFocusSession(id),
+    });
+
+  let hint: string;
+  if (!timer) hint = 'Focus runs 25-minute blocks with 5-minute breaks until you end it. Schedule session sets a total length.';
+  else if (!isNative) hint = 'Keep this page open. The alarm rings here at the end of each block.';
+  else if (!alarmsAsNotifications) hint = 'Notifications are off, so alarms only ring while the app is open.';
+  else hint = 'The alarm rings even if the screen turns off.';
+
+  const phaseLabel = !timer ? 'Ready' : paused ? 'Paused' : phase?.kind === 'break' ? 'Break' : 'Focus';
+
+  return (
+    <div className="page focus-page">
+      <header className="page-header">
+        <h1>Focus</h1>
+      </header>
+      <div className="page-scroll">
+        <section className="focus-hero" aria-label="Timer">
+          {timer ? (
+            <div className="focus-activity-label">
+              <span className="muted small">{timer.mode === 'scheduled' ? `Scheduled · ${formatMinutes(timer.plannedMinutes ?? 0)}` : 'Focusing on'}</span>
+              <strong>{timer.activity}</strong>
+            </div>
+          ) : (
+            <div className="activity-field">
+              <label htmlFor="focus-activity" className="field-label">
+                What are you focusing on?
+              </label>
+              <input
+                id="focus-activity"
+                type="text"
+                value={activity}
+                onChange={(e) => setActivity(e.target.value)}
+                placeholder="e.g. Math homework"
+                maxLength={80}
+                enterKeyHint="go"
+                autoComplete="off"
+              />
+              {recent.length > 0 && (
+                <div className="chip-row">
+                  {recent.map((a) => (
+                    <button key={a} type="button" className={`chip${a === activity ? ' on' : ''}`} onClick={() => setActivity(a)}>
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <TimerRing progress={progress} phase={phase?.kind ?? 'focus'} paused={paused}>
+            <div className="ring-phase">{phaseLabel}</div>
+            <div className="ring-time" role="timer" aria-live="off">
+              {formatClock(remaining)}
+            </div>
+            {timer && (
+              <div className="ring-sub">
+                {timer.mode === 'scheduled' && sessionLeft !== null
+                  ? `${formatClock(sessionLeft)} left in session`
+                  : `Round ${Math.floor(timer.phaseIndex / 2) + 1}`}
+              </div>
+            )}
+          </TimerRing>
+
+          <div className="focus-controls">
+            {!timer && (
+              <>
+                <button type="button" className="btn primary big" onClick={() => startFocus({ activity, mode: 'endless' })}>
+                  <PlayIcon size={18} /> Focus
+                </button>
+                <button type="button" className="btn big" onClick={() => setScheduling(true)}>
+                  <CalendarIcon size={18} /> Schedule session
+                </button>
+              </>
+            )}
+            {timer && !paused && (
+              <>
+                <button type="button" className="btn big" onClick={pauseFocus}>
+                  <PauseIcon size={18} /> Pause
+                </button>
+                {timer.mode === 'endless' && (
+                  <button type="button" className="btn big" onClick={skipFocusPhase}>
+                    <SkipIcon size={18} /> {phase?.kind === 'break' ? 'Skip break' : 'Take break'}
+                  </button>
+                )}
+                <button type="button" className="btn big danger" onClick={onStop}>
+                  <StopIcon size={18} /> End
+                </button>
+              </>
+            )}
+            {timer && paused && (
+              <>
+                <button type="button" className="btn primary big" onClick={resumeFocus}>
+                  <PlayIcon size={18} /> Resume
+                </button>
+                <button type="button" className="btn big danger" onClick={onStop}>
+                  <StopIcon size={18} /> End
+                </button>
+              </>
+            )}
+          </div>
+          <p className="focus-hint muted small">{hint}</p>
+        </section>
+
+        <section className="card-section" aria-label="Focus totals">
+          <div className="stat-grid three">
+            <div className="stat-card">
+              <span className="stat-label">Today</span>
+              <span className="stat-value">{formatDuration(stats.todayMs + liveFocusMs)}</span>
+              <span className="stat-note muted small">
+                {stats.todaySessions} session{stats.todaySessions === 1 ? '' : 's'}
+              </span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Last 7 days</span>
+              <span className="stat-value">{formatDuration(stats.weekMs + liveFocusMs)}</span>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Avg. rating</span>
+              <span className="stat-value">{stats.avgRating === null ? '–' : stats.avgRating.toFixed(1)}</span>
+              <span className="stat-note muted small">of 5, {stats.ratedSessions} rated</span>
+            </div>
+          </div>
+        </section>
+
+        {stats.activities.length > 0 && (
+          <section className="card-section">
+            <h2 className="card-title">By activity</h2>
+            <ul className="activity-list">
+              {stats.activities.slice(0, 8).map((a) => (
+                <li key={a.name.toLowerCase()}>
+                  <span className="activity-name">{a.name}</span>
+                  <span className="activity-meta muted small">
+                    {a.sessions} session{a.sessions === 1 ? '' : 's'}
+                    {a.avgRating !== null && ` · rated ${a.avgRating.toFixed(1)}`}
+                  </span>
+                  <span className="activity-time">{formatDuration(a.focusMs)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="card-section">
+          <h2 className="card-title">History</h2>
+          {!sessions?.length ? (
+            <p className="muted small">Finished sessions show up here with their rating.</p>
+          ) : (
+            <ul className="session-list">
+              {sessions.slice(0, 30).map((s) => (
+                <li key={s.id} className="session-item">
+                  <div className="session-main">
+                    <span className="session-title">{s.activity}</span>
+                    <span className="session-meta muted small">
+                      {format(s.startedAt, 'EEE, MMM d · h:mm a')} · {formatDuration(s.focusMs)} focus
+                      {s.mode === 'scheduled' && s.plannedMinutes ? ` · of ${formatMinutes(s.plannedMinutes)}` : ''}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="session-rating"
+                    onClick={() => askRating(s.id)}
+                    aria-label={s.rating ? `Rated ${s.rating} of 5. Change rating` : 'Rate this session'}
+                  >
+                    {s.rating ? (
+                      <span className="stars" aria-hidden="true">
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <StarIcon key={n} size={14} filled={n <= (s.rating ?? 0)} />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="rate-link">Rate</span>
+                    )}
+                  </button>
+                  <Menu
+                    label={`Options for ${s.activity} session`}
+                    trigger={<MoreIcon size={16} />}
+                    items={[{ label: 'Delete session', danger: true, onSelect: () => confirmDelete(s.id, s.activity) }]}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {scheduling && (
+        <ScheduleDialog
+          initialActivity={activity}
+          onClose={() => setScheduling(false)}
+          onStart={(minutes, act) => {
+            setScheduling(false);
+            setActivity(act);
+            startFocus({ activity: act, mode: 'scheduled', plannedMinutes: minutes });
+          }}
+        />
+      )}
+    </div>
+  );
+}

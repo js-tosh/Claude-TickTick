@@ -1,0 +1,97 @@
+# Builds the Android app (APK) on GitHub's servers, so nobody needs Android Studio.
+#
+# Every push produces a downloadable APK:
+#   main branch  → release "android-latest"
+#                  https://github.com/<owner>/<repo>/releases/latest/download/Tasks.apk
+#   other branches → pre-release "android-preview"
+#                  https://github.com/<owner>/<repo>/releases/download/android-preview/Tasks.apk
+# The APK is also attached to each workflow run as an artifact.
+#
+# All builds are signed with the same key (android/app/family-tasks.keystore), so a new
+# APK installs as an update over the old one and keeps the phone's data. To use a private
+# key instead, add repository secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+# ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. (Switching keys means reinstalling once.)
+name: Android APK
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write # publish the APK as a release asset
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install, test, build the web app
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      - name: Copy the web app into the Android project
+        run: npx cap sync android
+
+      - name: Use a private signing key (only if the secrets exist)
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          {
+            echo "TASKS_KEYSTORE=$RUNNER_TEMP/release.keystore"
+            echo "TASKS_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+            echo "TASKS_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}"
+            echo "TASKS_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk Tasks.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tasks-apk
+          path: Tasks.apk
+          if-no-files-found: error
+
+      - name: Publish the APK as a release download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            TAG=android-latest; TITLE="Tasks for Android"; FLAGS="--latest"
+          else
+            TAG=android-preview; TITLE="Tasks for Android (preview from ${GITHUB_REF_NAME})"; FLAGS="--prerelease"
+          fi
+          cat > notes.md <<NOTES
+          Built from ${GITHUB_SHA::7} on ${GITHUB_REF_NAME}.
+
+          **Install on Android:** open this page on the phone, tap **Tasks.apk**, and allow installs from your browser when Android asks.
+          Installing a newer build over an older one keeps all tasks, habits and focus history.
+          NOTES
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" Tasks.apk --target "$GITHUB_SHA" --title "$TITLE" --notes-file notes.md $FLAGS

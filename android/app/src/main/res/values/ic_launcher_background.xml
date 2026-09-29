@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- Adaptive icon background: the app's blue. The white check sits on top (ic_launcher_foreground). -->
+    <color name="ic_launcher_background">#4772FA</color>
 </resources>

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Folder, List } from '../db/types';
 import type { Counts, TagInfo } from '../hooks/useData';
 import { useUI, type View } from '../state/ui';
 import { deleteFolder, deleteList, updateFolder } from '../db/repo';
+import { useBackHandler } from '../lib/backStack';
 import {
   AllIcon,
   ChevronIcon,
@@ -35,12 +36,47 @@ function sameView(a: View, b: View): boolean {
   return true;
 }
 
+function NavItem({ v, icon, label, count }: { v: View; icon: ReactNode; label: string; count?: number }) {
+  const { view, setView } = useUI();
+  const active = sameView(view, v);
+  return (
+    <button type="button" className={`nav-item${active ? ' active' : ''}`} onClick={() => setView(v)} aria-current={active ? 'page' : undefined}>
+      <span className="nav-icon">{icon}</span>
+      <span className="nav-label">{label}</span>
+      {count !== undefined && count > 0 && <span className="nav-count">{count}</span>}
+    </button>
+  );
+}
+
+function ListRow({ list, nested, count, onDelete }: { list: List; nested?: boolean; count: number; onDelete: (l: List) => void }) {
+  const { view, setView, openDialog } = useUI();
+  const active = sameView(view, { kind: 'list', listId: list.id });
+  return (
+    <div className={`nav-row${nested ? ' nested' : ''}`}>
+      <button type="button" className={`nav-item${active ? ' active' : ''}`} onClick={() => setView({ kind: 'list', listId: list.id })}>
+        <span className="nav-icon">{list.color ? <span className="list-dot" style={{ background: list.color }} /> : <ListIcon />}</span>
+        <span className="nav-label">{list.name}</span>
+        {count > 0 && <span className="nav-count">{count}</span>}
+      </button>
+      <Menu
+        label={`Options for ${list.name}`}
+        trigger={<MoreIcon size={16} />}
+        className="row-menu"
+        items={[
+          { label: 'Edit list', onSelect: () => openDialog({ kind: 'list', listId: list.id }) },
+          { label: 'Delete list', danger: true, onSelect: () => onDelete(list) },
+        ]}
+      />
+    </div>
+  );
+}
+
 export function Sidebar({ folders, lists, tags, counts }: Props) {
-  const ui = useUI();
-  const { view, setView, openDialog, sidebarOpen, setSidebarOpen } = ui;
+  const { view, setView, openDialog, sidebarOpen, setSidebarOpen } = useUI();
   const [query, setQuery] = useState(view.kind === 'search' ? view.query : '');
   const lastNonSearch = useRef<View>(view.kind === 'search' ? { kind: 'inbox' } : view);
-  const searchRef = useRef<HTMLInputElement>(null);
+
+  useBackHandler(sidebarOpen, () => setSidebarOpen(false));
 
   useEffect(() => {
     if (view.kind !== 'search') {
@@ -63,24 +99,12 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
     listsByFolder.get(l.folderId)!.push(l);
   }
 
-  const NavItem = ({ v, icon, label, count }: { v: View; icon: React.ReactNode; label: string; count?: number }) => (
-    <button
-      type="button"
-      className={`nav-item${sameView(view, v) ? ' active' : ''}`}
-      onClick={() => setView(v)}
-      aria-current={sameView(view, v) ? 'page' : undefined}
-    >
-      <span className="nav-icon">{icon}</span>
-      <span className="nav-label">{label}</span>
-      {count !== undefined && count > 0 && <span className="nav-count">{count}</span>}
-    </button>
-  );
-
-  const confirmDeleteList = (l: List) =>
+  const confirmDeleteList = (l: List) => {
+    const n = counts.perList.get(l.id) ?? 0;
     openDialog({
       kind: 'confirm',
       title: `Delete "${l.name}"?`,
-      message: `The list and all ${counts.perList.get(l.id) ?? 0} open tasks in it will be deleted. This cannot be undone.`,
+      message: `The list and ${n === 1 ? 'the 1 open task' : `all ${n} open tasks`} in it will be deleted. This cannot be undone.`,
       confirmLabel: 'Delete list',
       danger: true,
       onConfirm: async () => {
@@ -88,6 +112,7 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
         if (view.kind === 'list' && view.listId === l.id) setView({ kind: 'inbox' });
       },
     });
+  };
 
   const confirmDeleteFolder = (f: Folder) => {
     const inside = listsByFolder.get(f.id) ?? [];
@@ -103,46 +128,14 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
     });
   };
 
-  const ListRow = ({ l, nested }: { l: List; nested?: boolean }) => (
-    <div className={`nav-row${nested ? ' nested' : ''}`}>
-      <button
-        type="button"
-        className={`nav-item${sameView(view, { kind: 'list', listId: l.id }) ? ' active' : ''}`}
-        onClick={() => setView({ kind: 'list', listId: l.id })}
-      >
-        <span className="nav-icon">
-          {l.color ? <span className="list-dot" style={{ background: l.color }} /> : <ListIcon />}
-        </span>
-        <span className="nav-label">{l.name}</span>
-        {(counts.perList.get(l.id) ?? 0) > 0 && <span className="nav-count">{counts.perList.get(l.id)}</span>}
-      </button>
-      <Menu
-        label={`Options for ${l.name}`}
-        trigger={<MoreIcon size={16} />}
-        className="row-menu"
-        items={[
-          { label: 'Edit list', onSelect: () => openDialog({ kind: 'list', listId: l.id }) },
-          { label: 'Delete list', danger: true, onSelect: () => confirmDeleteList(l) },
-        ]}
-      />
-    </div>
-  );
-
   return (
     <>
       {sidebarOpen && <div className="scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />}
-      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`} aria-label="Navigation">
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`} aria-label="Lists">
         <div className="sidebar-top">
           <label className="search">
             <SearchIcon size={16} />
-            <input
-              ref={searchRef}
-              type="search"
-              placeholder="Search tasks"
-              value={query}
-              onChange={(e) => onSearch(e.target.value)}
-              aria-label="Search tasks"
-            />
+            <input type="search" placeholder="Search tasks" value={query} onChange={(e) => onSearch(e.target.value)} aria-label="Search tasks" />
           </label>
           <button type="button" className="icon-btn sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close menu">
             <CloseIcon />
@@ -207,7 +200,7 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
                     <div className="folder-lists">
                       {inside.length === 0 && <div className="nav-empty">No lists yet</div>}
                       {inside.map((l) => (
-                        <ListRow key={l.id} l={l} nested />
+                        <ListRow key={l.id} list={l} nested count={counts.perList.get(l.id) ?? 0} onDelete={confirmDeleteList} />
                       ))}
                     </div>
                   )}
@@ -216,12 +209,10 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
             })}
 
             {topLevelLists.map((l) => (
-              <ListRow key={l.id} l={l} />
+              <ListRow key={l.id} list={l} count={counts.perList.get(l.id) ?? 0} onDelete={confirmDeleteList} />
             ))}
 
-            {folders.length === 0 && topLevelLists.length === 0 && (
-              <div className="nav-empty">Create a list or folder with the + button.</div>
-            )}
+            {folders.length === 0 && topLevelLists.length === 0 && <div className="nav-empty">Create a list or folder with the + button.</div>}
           </div>
 
           {tags.length > 0 && (
@@ -231,17 +222,7 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
               </div>
               {tags.map(({ tag, count }) => (
                 <div key={tag} className="nav-row">
-                  <button
-                    type="button"
-                    className={`nav-item${sameView(view, { kind: 'tag', tag }) ? ' active' : ''}`}
-                    onClick={() => setView({ kind: 'tag', tag })}
-                  >
-                    <span className="nav-icon">
-                      <TagIcon />
-                    </span>
-                    <span className="nav-label">{tag}</span>
-                    <span className="nav-count">{count}</span>
-                  </button>
+                  <NavItem v={{ kind: 'tag', tag }} icon={<TagIcon />} label={tag} count={count} />
                   <Menu
                     label={`Options for tag ${tag}`}
                     trigger={<MoreIcon size={16} />}
@@ -255,7 +236,14 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
         </nav>
 
         <div className="sidebar-bottom">
-          <button type="button" className="nav-item" onClick={() => openDialog({ kind: 'settings' })}>
+          <button
+            type="button"
+            className="nav-item"
+            onClick={() => {
+              setSidebarOpen(false);
+              openDialog({ kind: 'settings' });
+            }}
+          >
             <span className="nav-icon">
               <SettingsIcon />
             </span>

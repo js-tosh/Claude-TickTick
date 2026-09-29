@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useBackHandler } from '../lib/backStack';
+import { useDraft } from '../hooks/useDraft';
 import type { Folder, List, Priority, Repeat, Task } from '../db/types';
 import { PRIORITY_LABELS, REPEAT_LABELS } from '../db/types';
 import { createTask, deleteTask, setTaskDone, updateTask } from '../db/repo';
@@ -18,6 +20,7 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
   const subtasks = useSubtasks(taskId);
   const { selectTask, openDialog } = useUI();
   const parent = useTask(task?.parentId ?? null);
+  useBackHandler(true, () => selectTask(null));
 
   if (!task) {
     return (
@@ -187,7 +190,10 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
 // ---------------------------------------------------------------------------
 
 function TitleEditor({ task }: { task: Task }) {
-  const [value, setValue] = useState(task.title);
+  const { value, setValue, flush, reset } = useDraft(task.title, (v) => {
+    const t = v.trim();
+    if (t) void updateTask(task.id, { title: t });
+  });
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -198,12 +204,11 @@ function TitleEditor({ task }: { task: Task }) {
   }, [value]);
 
   const commit = () => {
-    const v = value.trim();
-    if (!v) {
-      setValue(task.title);
+    if (!value.trim()) {
+      reset(task.title);
       return;
     }
-    if (v !== task.title) void updateTask(task.id, { title: v });
+    flush();
   };
 
   return (
@@ -270,6 +275,16 @@ function DueEditor({ task }: { task: Task }) {
 
 function TagEditor({ task }: { task: Task }) {
   const [draft, setDraft] = useState('');
+  const pending = useRef({ draft, tags: task.tags });
+  pending.current = { draft, tags: task.tags };
+  // Keep a half-typed tag if the panel closes before Enter or blur.
+  useEffect(
+    () => () => {
+      const parts = pending.current.draft.split(/[,\s]+/).filter(Boolean);
+      if (parts.length) void updateTask(task.id, { tags: [...pending.current.tags, ...parts] });
+    },
+    [task.id],
+  );
   const add = () => {
     const parts = draft.split(/[,\s]+/).filter(Boolean);
     if (parts.length) void updateTask(task.id, { tags: [...task.tags, ...parts] });
@@ -308,7 +323,7 @@ function TagEditor({ task }: { task: Task }) {
 }
 
 function NotesEditor({ task }: { task: Task }) {
-  const [value, setValue] = useState(task.notes);
+  const { value, setValue, flush } = useDraft(task.notes, (v) => void updateTask(task.id, { notes: v }));
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -323,9 +338,7 @@ function NotesEditor({ task }: { task: Task }) {
       value={value}
       placeholder="Add notes…"
       onChange={(e) => setValue(e.target.value)}
-      onBlur={() => {
-        if (value !== task.notes) void updateTask(task.id, { notes: value });
-      }}
+      onBlur={flush}
       aria-label="Notes"
     />
   );
@@ -385,8 +398,10 @@ function SubtaskEditor({ task, subtasks }: { task: Task; subtasks: Task[] }) {
 }
 
 function SubtaskTitle({ sub }: { sub: Task }) {
-  const [value, setValue] = useState(sub.title);
-  useEffect(() => setValue(sub.title), [sub.title]);
+  const { value, setValue, flush, reset } = useDraft(sub.title, (v) => {
+    const t = v.trim();
+    if (t) void updateTask(sub.id, { title: t });
+  });
   return (
     <input
       type="text"
@@ -394,9 +409,8 @@ function SubtaskTitle({ sub }: { sub: Task }) {
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={() => {
-        const v = value.trim();
-        if (!v) setValue(sub.title);
-        else if (v !== sub.title) void updateTask(sub.id, { title: v });
+        if (!value.trim()) reset(sub.title);
+        else flush();
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

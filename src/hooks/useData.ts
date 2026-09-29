@@ -5,6 +5,7 @@ import { db } from '../db/db';
 import type { Folder, List, Task } from '../db/types';
 import type { SortBy, View } from '../state/ui';
 import { addDaysKey, todayKey } from '../lib/dates';
+import { useToday } from './useToday';
 
 export function useFolders(): Folder[] | undefined {
   return useLiveQuery(() => db.folders.orderBy('sortOrder').toArray(), []);
@@ -60,8 +61,8 @@ export interface Counts {
 }
 
 export function useCounts(tasks: Task[] | undefined, inboxId: string | undefined): Counts {
+  const today = useToday();
   return useMemo(() => {
-    const today = todayKey();
     const weekEnd = addDaysKey(today, 6);
     const counts: Counts = { inbox: 0, today: 0, week: 0, all: 0, perList: new Map() };
     for (const t of tasks ?? []) {
@@ -75,7 +76,7 @@ export function useCounts(tasks: Task[] | undefined, inboxId: string | undefined
       }
     }
     return counts;
-  }, [tasks, inboxId]);
+  }, [tasks, inboxId, today]);
 }
 
 export interface Section {
@@ -216,5 +217,10 @@ export function computeView(
 }
 
 export function useViewData(view: View, tasks: Task[] | undefined, inboxId: string | undefined, sortBy: SortBy): ViewData | undefined {
-  return useMemo(() => (tasks ? computeView(view, tasks, inboxId, sortBy) : undefined), [view, tasks, inboxId, sortBy]);
+  const today = useToday(); // recompute Today / Next 7 Days when the date rolls over
+  return useMemo(
+    () => (tasks ? computeView(view, tasks, inboxId, sortBy, new Date()) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, tasks, inboxId, sortBy, today],
+  );
 }

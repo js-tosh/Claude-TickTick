@@ -7,8 +7,10 @@ android {
         applicationId "com.family.tasks"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Every build gets a higher versionCode (minutes since 2026-01-01), so a newer APK
+        // always installs as an update over an older one, whichever machine built it.
+        versionCode buildVersionCode()
+        versionName "1.1." + buildVersionCode()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,12 +18,32 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // One fixed key for every build (CI and local), so updates install over the
+        // previous version without uninstalling (which would erase the phone's data).
+        // Override with your own key via these environment variables if you prefer.
+        family {
+            storeFile file(System.getenv('TASKS_KEYSTORE') ?: 'family-tasks.keystore')
+            storePassword System.getenv('TASKS_KEYSTORE_PASSWORD') ?: 'family-tasks'
+            keyAlias System.getenv('TASKS_KEY_ALIAS') ?: 'family-tasks'
+            keyPassword System.getenv('TASKS_KEY_PASSWORD') ?: 'family-tasks'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.family
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.family
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+int buildVersionCode() {
+    long epoch2026 = 1767225600L // 2026-01-01T00:00:00Z
+    return (int) Math.max(1L, (long) ((System.currentTimeMillis() / 1000L - epoch2026) / 60L))
 }
 
 repositories {

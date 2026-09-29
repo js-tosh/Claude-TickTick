@@ -124,7 +124,7 @@ describe('backup', () => {
 
     await clearAll();
     const r = await importJSON(json, 'replace');
-    expect(r).toEqual({ folders: 1, lists: 2, tasks: 2 });
+    expect(r).toEqual({ folders: 1, lists: 2, tasks: 2, habits: 0, focusSessions: 0 });
     expect((await db.tasks.get(t.id))?.title).toBe('Vacuum');
     expect((await db.lists.get(l.id))?.folderId).toBe(f.id);
   });

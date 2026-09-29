@@ -10,9 +10,11 @@ interface Props {
   folders: Folder[];
   lists: List[];
   taskCount: number;
+  habitCount: number;
+  sessionCount: number;
 }
 
-export function Dialogs({ folders, lists, taskCount }: Props) {
+export function Dialogs({ folders, lists, taskCount, habitCount, sessionCount }: Props) {
   const { dialog } = useUI();
   if (!dialog) return null;
   switch (dialog.kind) {
@@ -23,7 +25,11 @@ export function Dialogs({ folders, lists, taskCount }: Props) {
     case 'tag':
       return <TagDialog tag={dialog.tag} />;
     case 'settings':
-      return <SettingsDialog stats={{ folders: folders.length, lists: lists.length, tasks: taskCount }} />;
+      return (
+        <SettingsDialog
+          stats={{ folders: folders.length, lists: lists.length, tasks: taskCount, habits: habitCount, sessions: sessionCount }}
+        />
+      );
     case 'confirm':
       return (
         <ConfirmDialog

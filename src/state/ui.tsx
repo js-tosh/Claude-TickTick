@@ -10,6 +10,8 @@ export type View =
   | { kind: 'tag'; tag: string }
   | { kind: 'search'; query: string };
 
+export type Tab = 'tasks' | 'calendar' | 'focus' | 'habits';
+
 export type SortBy = 'manual' | 'dueDate' | 'priority' | 'title';
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -22,6 +24,8 @@ export type Dialog =
   | null;
 
 interface UIState {
+  tab: Tab;
+  setTab: (t: Tab) => void;
   view: View;
   setView: (v: View) => void;
   selectedTaskId: string | null;
@@ -82,6 +86,8 @@ export function applyTheme(theme: Theme) {
 }
 
 export function UIProvider({ children }: { children: ReactNode }) {
+  // The app always opens on the to-do list, the main page.
+  const [tab, setTabState] = useState<Tab>('tasks');
   const [view, setViewState] = useState<View>(() => readLS(LS.view, { kind: 'inbox' } as View, isView));
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -99,6 +105,14 @@ export function UIProvider({ children }: { children: ReactNode }) {
     setSidebarOpen(false);
     if (v.kind !== 'search') writeLS(LS.view, v);
   }, []);
+
+  const setTab = useCallback((t: Tab) => {
+    setTabState(t);
+    setSelectedTaskId(null);
+    setSidebarOpen(false);
+  }, []);
+
+  const closeDialog = useCallback(() => setDialog(null), []);
 
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
@@ -127,6 +141,8 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<UIState>(
     () => ({
+      tab,
+      setTab,
       view,
       setView,
       selectedTaskId,
@@ -141,11 +157,11 @@ export function UIProvider({ children }: { children: ReactNode }) {
       setShowCompleted,
       dialog,
       openDialog: setDialog,
-      closeDialog: () => setDialog(null),
+      closeDialog,
       toast,
       showToast,
     }),
-    [view, setView, selectedTaskId, sidebarOpen, theme, setTheme, sortBy, setSortBy, showCompleted, setShowCompleted, dialog, toast, showToast],
+    [tab, setTab, view, setView, selectedTaskId, sidebarOpen, theme, setTheme, sortBy, setSortBy, showCompleted, setShowCompleted, dialog, closeDialog, toast, showToast],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

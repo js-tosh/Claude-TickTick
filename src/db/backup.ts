@@ -1,6 +1,19 @@
 import { db } from './db';
-import { SCHEMA_VERSION, type BackupFile, type Folder, type List, type Task } from './types';
+import {
+  HABIT_COLORS,
+  SCHEMA_VERSION,
+  type BackupFile,
+  type FocusSession,
+  type Folder,
+  type Habit,
+  type HabitLog,
+  type HabitSection,
+  type List,
+  type Task,
+  type WeekdayIndex,
+} from './types';
 import { normalizeTags, ensureInbox } from './repo';
+import { logId, normalizeHabitInput } from './habits';
 import { isValidKey } from '../lib/dates';
 
 // ---------------------------------------------------------------------------
@@ -8,10 +21,13 @@ import { isValidKey } from '../lib/dates';
 // ---------------------------------------------------------------------------
 
 export async function buildBackup(): Promise<BackupFile> {
-  const [folders, lists, tasks] = await Promise.all([
+  const [folders, lists, tasks, habits, habitLogs, focusSessions] = await Promise.all([
     db.folders.toArray(),
     db.lists.toArray(),
     db.tasks.toArray(),
+    db.habits.toArray(),
+    db.habitLogs.toArray(),
+    db.focusSessions.toArray(),
   ]);
   return {
     app: 'ticktick-clone',
@@ -20,6 +36,9 @@ export async function buildBackup(): Promise<BackupFile> {
     folders,
     lists,
     tasks,
+    habits,
+    habitLogs,
+    focusSessions,
   };
 }
 
@@ -73,23 +92,30 @@ export interface ImportResult {
   folders: number;
   lists: number;
   tasks: number;
+  habits: number;
+  focusSessions: number;
 }
 
 /**
  * Import a backup produced by exportJSON().
  *  - merge:   upsert by id (newer updatedAt wins), nothing is deleted.
  *  - replace: wipe local data first, then load the file.
+ *
+ * Merging can leave more than MAX_HABITS habits (e.g. two phones with four
+ * each). They are all kept so no data is lost; only creating new ones is blocked.
  */
 export async function importJSON(text: string, mode: ImportMode): Promise<ImportResult> {
   const parsed = parseBackup(text);
-  await db.transaction('rw', db.folders, db.lists, db.tasks, async () => {
+  const tables = [db.folders, db.lists, db.tasks, db.habits, db.habitLogs, db.focusSessions];
+  await db.transaction('rw', tables, async () => {
     if (mode === 'replace') {
-      await db.tasks.clear();
-      await db.lists.clear();
-      await db.folders.clear();
+      for (const t of tables) await t.clear();
       await db.folders.bulkAdd(parsed.folders);
       await db.lists.bulkAdd(parsed.lists);
       await db.tasks.bulkAdd(parsed.tasks);
+      await db.habits.bulkAdd(parsed.habits);
+      await db.habitLogs.bulkAdd(parsed.habitLogs);
+      await db.focusSessions.bulkAdd(parsed.focusSessions);
       return;
     }
     // merge
@@ -111,9 +137,27 @@ export async function importJSON(text: string, mode: ImportMode): Promise<Import
       const cur = await db.tasks.get(t.id);
       if (!cur || cur.updatedAt <= t.updatedAt) await db.tasks.put(t);
     }
+    for (const h of parsed.habits) {
+      const cur = await db.habits.get(h.id);
+      if (!cur || cur.updatedAt <= h.updatedAt) await db.habits.put(h);
+    }
+    for (const l of parsed.habitLogs) {
+      const cur = await db.habitLogs.get(l.id);
+      if (!cur || cur.updatedAt <= l.updatedAt) await db.habitLogs.put(l);
+    }
+    for (const f of parsed.focusSessions) {
+      const cur = await db.focusSessions.get(f.id);
+      if (!cur || cur.updatedAt <= f.updatedAt) await db.focusSessions.put(f);
+    }
   });
   await ensureInbox();
-  return { folders: parsed.folders.length, lists: parsed.lists.length, tasks: parsed.tasks.length };
+  return {
+    folders: parsed.folders.length,
+    lists: parsed.lists.length,
+    tasks: parsed.tasks.length,
+    habits: parsed.habits.length,
+    focusSessions: parsed.focusSessions.length,
+  };
 }
 
 /** Validate and normalise a backup file. Throws a readable Error on bad input. */
@@ -176,6 +220,68 @@ export function parseBackup(text: string): BackupFile {
   for (const [i, f] of folders.entries()) if (!f.id) throw new Error(`Folder #${i + 1} has no id.`);
   for (const [i, l] of lists.entries()) if (!l.id) throw new Error(`List #${i + 1} has no id.`);
   for (const [i, t] of tasks.entries()) if (!t.id) throw new Error(`Task #${i + 1} has no id.`);
+
+  // Version 2 additions. Missing in version-1 files, which is fine.
+  const habits: Habit[] = arr(obj.habits)
+    .filter((h) => typeof h.id === 'string' && h.id)
+    .map((h) => {
+      const freq = (h.frequency ?? {}) as Record<string, unknown>;
+      const goal = (h.goal ?? {}) as Record<string, unknown>;
+      const clean = normalizeHabitInput({
+        name: str(h.name, 'Untitled habit'),
+        icon: str(h.icon, '😊'),
+        color: str(h.color, HABIT_COLORS[0]),
+        frequency:
+          freq.type === 'interval'
+            ? { type: 'interval', every: num(freq.every, 2) }
+            : { type: 'weekdays', days: Array.isArray(freq.days) ? (freq.days.map(Number) as WeekdayIndex[]) : [] },
+        goal: goal.type === 'amount' ? { type: 'amount', amount: num(goal.amount, 1), unit: str(goal.unit) } : { type: 'all' },
+        startDate: str(h.startDate),
+        goalDays: typeof h.goalDays === 'number' ? h.goalDays : null,
+        section: str(h.section, 'others') as HabitSection,
+        reminders: Array.isArray(h.reminders) ? h.reminders.map(String) : [],
+        constantReminder: Boolean(h.constantReminder),
+      });
+      return { ...clean, id: h.id as string, sortOrder: num(h.sortOrder, 0), createdAt: num(h.createdAt, ts), updatedAt: num(h.updatedAt, ts) };
+    });
+  const habitIds = new Set(habits.map((h) => h.id));
+  const seenLogs = new Set<string>();
+  const habitLogs: HabitLog[] = [];
+  for (const l of arr(obj.habitLogs)) {
+    const habitId = str(l.habitId);
+    const date = str(l.date);
+    if (!habitIds.has(habitId) || !isValidKey(date)) continue;
+    const id = logId(habitId, date);
+    if (seenLogs.has(id)) continue;
+    seenLogs.add(id);
+    habitLogs.push({
+      id,
+      habitId,
+      date,
+      value: Math.max(0, Math.floor(num(l.value, 0))),
+      note: str(l.note).slice(0, 2000),
+      updatedAt: num(l.updatedAt, ts),
+    });
+  }
+  const focusSessions: FocusSession[] = arr(obj.focusSessions)
+    .filter((f) => typeof f.id === 'string' && f.id && typeof f.startedAt === 'number')
+    .map((f) => {
+      const rating = num(f.rating, NaN);
+      return {
+        id: f.id as string,
+        activity: str(f.activity, 'Focus').slice(0, 80) || 'Focus',
+        mode: f.mode === 'scheduled' ? 'scheduled' : 'endless',
+        plannedMinutes: typeof f.plannedMinutes === 'number' ? f.plannedMinutes : null,
+        startedAt: f.startedAt as number,
+        endedAt: num(f.endedAt, f.startedAt as number),
+        focusMs: Math.max(0, num(f.focusMs, 0)),
+        breakMs: Math.max(0, num(f.breakMs, 0)),
+        pomodoros: Math.max(0, Math.floor(num(f.pomodoros, 0))),
+        rating: rating >= 1 && rating <= 5 ? Math.round(rating) : null,
+        updatedAt: num(f.updatedAt, ts),
+      };
+    });
+
   return {
     app: 'ticktick-clone',
     schemaVersion: num(obj.schemaVersion, 1),
@@ -183,7 +289,14 @@ export function parseBackup(text: string): BackupFile {
     folders,
     lists,
     tasks,
+    habits,
+    habitLogs,
+    focusSessions,
   };
+}
+
+function arr(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object') : [];
 }
 
 function str(v: unknown, fallback = ''): string {
@@ -194,20 +307,8 @@ function num(v: unknown, fallback: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Browser download helper
+// File names
 // ---------------------------------------------------------------------------
-
-export function downloadText(filename: string, text: string, mime = 'application/json') {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export function backupFilename(ext: 'json' | 'csv'): string {
   const d = new Date();

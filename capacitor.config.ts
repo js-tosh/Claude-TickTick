@@ -9,6 +9,13 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
   },
+  plugins: {
+    LocalNotifications: {
+      // res/drawable/ic_stat_tasks.xml: white check-box glyph for the status bar.
+      smallIcon: 'ic_stat_tasks',
+      iconColor: '#4772FA',
+    },
+  },
 };
 
 export default config;

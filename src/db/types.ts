@@ -49,6 +49,97 @@ export interface Task {
   updatedAt: number;
 }
 
+// ---------------------------------------------------------------------------
+// Habits
+// ---------------------------------------------------------------------------
+
+/** Sunday = 0 … Saturday = 6, like Date#getDay(). */
+export type WeekdayIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export type HabitFrequency =
+  | { type: 'weekdays'; days: WeekdayIndex[] }
+  | { type: 'interval'; every: number };
+
+export type HabitGoal = { type: 'all' } | { type: 'amount'; amount: number; unit: string };
+
+export type HabitSection = 'morning' | 'afternoon' | 'night' | 'others';
+
+export interface Habit {
+  id: string;
+  name: string;
+  /** A single emoji shown in the colored circle. */
+  icon: string;
+  color: string;
+  frequency: HabitFrequency;
+  goal: HabitGoal;
+  /** 'YYYY-MM-DD'. Days before this are never scheduled. */
+  startDate: string;
+  /** Number of check-ins aimed for; null = forever. */
+  goalDays: number | null;
+  section: HabitSection;
+  /** Reminder times 'HH:mm'. */
+  reminders: string[];
+  /** Pinned reminder that re-alerts until checked in. */
+  constantReminder: boolean;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One row per habit per day that has a value or a note. */
+export interface HabitLog {
+  /** `${habitId}:${date}` so a day can only have one entry. */
+  id: string;
+  habitId: string;
+  date: string;
+  /** 1 = done for "achieve it all"; a count for amount goals. */
+  value: number;
+  note: string;
+  updatedAt: number;
+}
+
+export const MAX_HABITS = 4;
+export const MAX_REMINDERS = 3;
+
+export const HABIT_SECTIONS: { id: HabitSection; label: string }[] = [
+  { id: 'morning', label: 'Morning' },
+  { id: 'afternoon', label: 'Afternoon' },
+  { id: 'night', label: 'Night' },
+  { id: 'others', label: 'Others' },
+];
+
+export const GOAL_DAY_OPTIONS: (number | null)[] = [null, 7, 21, 30, 60, 100, 365];
+
+export const HABIT_ICONS = [
+  '😊', '🥗', '💪', '🏃', '📚', '💧', '🧘', '🛏️', '🦷', '🍎', '🚶', '✍️',
+  '🎸', '🌱', '💊', '🧹', '☀️', '🌙', '🚭', '📵', '🙏', '🎯', '💰', '❤️',
+] as const;
+
+export const HABIT_COLORS = ['#a7e27a', '#7cc8f8', '#ffb86b', '#ff8a8a', '#c7a4ff', '#ffe066', '#6fe0c0', '#f7a8d8'] as const;
+
+// ---------------------------------------------------------------------------
+// Focus (Pomodoro)
+// ---------------------------------------------------------------------------
+
+export type FocusMode = 'endless' | 'scheduled';
+
+export interface FocusSession {
+  id: string;
+  activity: string;
+  mode: FocusMode;
+  /** Scheduled sessions only: the length that was picked, in minutes. */
+  plannedMinutes: number | null;
+  startedAt: number;
+  endedAt: number;
+  focusMs: number;
+  breakMs: number;
+  /** Focus blocks that ran to the end. */
+  pomodoros: number;
+  /** 1–5, or null when the user skipped rating. */
+  rating: number | null;
+  updatedAt: number;
+}
+
 /** Shape of a JSON backup file. */
 export interface BackupFile {
   app: 'ticktick-clone';
@@ -57,9 +148,13 @@ export interface BackupFile {
   folders: Folder[];
   lists: List[];
   tasks: Task[];
+  habits: Habit[];
+  habitLogs: HabitLog[];
+  focusSessions: FocusSession[];
 }
 
-export const SCHEMA_VERSION = 1;
+/** 2 added habits, habit logs and focus sessions. Version-1 files still import. */
+export const SCHEMA_VERSION = 2;
 
 export const PRIORITY_LABELS: Record<Priority, string> = {
   0: 'None',

@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
-import { backupFilename, downloadText, exportCSV, exportJSON, importJSON, type ImportMode } from '../../db/backup';
+import { backupFilename, exportCSV, exportJSON, importJSON, parseBackup, type ImportMode } from '../../db/backup';
+import { isNative, saveTextFile } from '../../lib/platform';
 import { clearAll, ensureInbox } from '../../db/repo';
 import { useUI, type Theme } from '../../state/ui';
 import { CopyIcon, DownloadIcon, MoonIcon, PasteIcon, SunIcon, UploadIcon } from '../Icons';
 import { Modal } from '../Modal';
 
 interface Props {
-  stats: { folders: number; lists: number; tasks: number };
+  stats: { folders: number; lists: number; tasks: number; habits: number; sessions: number };
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -23,10 +24,16 @@ export function SettingsDialog({ stats }: Props) {
 
   const doExport = async (kind: 'json' | 'csv') => {
     setBusy(true);
+    setError(null);
     try {
-      if (kind === 'json') downloadText(backupFilename('json'), await exportJSON(), 'application/json');
-      else downloadText(backupFilename('csv'), await exportCSV(), 'text/csv');
-      showToast(kind === 'json' ? 'Backup downloaded' : 'CSV downloaded');
+      const result =
+        kind === 'json'
+          ? await saveTextFile(backupFilename('json'), await exportJSON(), 'application/json')
+          : await saveTextFile(backupFilename('csv'), await exportCSV(), 'text/csv');
+      if (result === 'downloaded') showToast(kind === 'json' ? 'Backup downloaded' : 'CSV downloaded');
+      if (result === 'shared') showToast('Backup ready to save or send');
+    } catch (e) {
+      setError(`Could not export: ${e instanceof Error ? e.message : 'unknown error'}. Try "Copy backup" instead.`);
     } finally {
       setBusy(false);
     }
@@ -54,15 +61,26 @@ export function SettingsDialog({ stats }: Props) {
 
   const importText = async (text: string) => {
     setError(null);
+    // Check the file first, so a bad file is reported here instead of after
+    // the "Replace all data?" confirmation (which closes this dialog).
+    try {
+      parseBackup(text);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That file is not a backup from this app.');
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
     const run = async () => {
       setBusy(true);
       try {
         const r = await importJSON(text, mode);
-        showToast(`Imported ${r.tasks} tasks, ${r.lists} lists, ${r.folders} folders`);
+        showToast(`Imported ${r.tasks} tasks, ${r.habits} habits, ${r.focusSessions} focus sessions`);
         setView({ kind: 'inbox' });
         closeDialog();
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Import failed.');
+        const msg = e instanceof Error ? e.message : 'Import failed.';
+        setError(msg);
+        showToast(`Import failed: ${msg}`);
       } finally {
         setBusy(false);
         if (fileRef.current) fileRef.current.value = '';
@@ -72,7 +90,7 @@ export function SettingsDialog({ stats }: Props) {
       openDialog({
         kind: 'confirm',
         title: 'Replace all data?',
-        message: `Everything currently on this device (${stats.tasks} tasks) will be deleted and replaced with the file's contents.`,
+        message: `Everything currently on this device (${stats.tasks} tasks, ${stats.habits} habits, ${stats.sessions} focus sessions) will be deleted and replaced with the file's contents.`,
         confirmLabel: 'Replace',
         danger: true,
         onConfirm: run,
@@ -86,7 +104,7 @@ export function SettingsDialog({ stats }: Props) {
     openDialog({
       kind: 'confirm',
       title: 'Delete all data on this device?',
-      message: 'All folders, lists and tasks stored in this browser will be permanently deleted. Export a backup first if you want to keep them.',
+      message: 'All tasks, habits and focus history on this device will be permanently deleted. Export a backup first if you want to keep them.',
       confirmLabel: 'Delete everything',
       danger: true,
       onConfirm: async () => {
@@ -115,12 +133,13 @@ export function SettingsDialog({ stats }: Props) {
       <section className="settings-section">
         <h3>Export</h3>
         <p className="muted">
-          Your data lives only in this browser or app. Download a backup to keep it safe or to move it to another device.
-          Currently: {plural(stats.tasks, 'task')} in {plural(stats.lists, 'list')} and {plural(stats.folders, 'folder')}.
+          Your data lives only on this device. Export a backup to keep it safe or to move it to another device.
+          Currently: {plural(stats.tasks, 'task')} in {plural(stats.lists, 'list')} and {plural(stats.folders, 'folder')},{' '}
+          {plural(stats.habits, 'habit')}, {plural(stats.sessions, 'focus session')}.
         </p>
         <div className="btn-row">
           <button type="button" className="btn primary" onClick={() => doExport('json')} disabled={busy}>
-            <DownloadIcon size={16} /> Backup (JSON)
+            <DownloadIcon size={16} /> {isNative ? 'Save or share backup' : 'Backup (JSON)'}
           </button>
           <button type="button" className="btn" onClick={() => doExport('csv')} disabled={busy}>
             <DownloadIcon size={16} /> Spreadsheet (CSV)
@@ -150,7 +169,8 @@ export function SettingsDialog({ stats }: Props) {
         <input
           ref={fileRef}
           type="file"
-          accept="application/json,.json"
+          // Android file pickers often label .json files as "unknown", which an accept filter would grey out.
+          accept={isNative ? undefined : 'application/json,.json'}
           hidden
           onChange={(e) => void onFile(e.target.files?.[0])}
         />
@@ -201,7 +221,7 @@ export function SettingsDialog({ stats }: Props) {
       <section className="settings-section">
         <h3>About</h3>
         <p className="muted small">
-          Offline-first to-do app. No account, no server: everything is stored on this device. Quick-add understands{' '}
+          Tasks, calendar, focus timer and habits. No account, no server: everything is stored on this device. Quick-add understands{' '}
           <code>!high</code> / <code>!low</code>, <code>#tag</code>, <code>today</code>, <code>tomorrow</code>, weekday names,
           <code>next week</code> and dates like <code>2026-10-03</code>.
         </p>

@@ -284,9 +284,12 @@ export function normalizeTags(tags: string[]): string[] {
 
 /** Wipe everything (used by "Replace" import and the reset button). */
 export async function clearAll() {
-  await db.transaction('rw', db.folders, db.lists, db.tasks, async () => {
+  await db.transaction('rw', [db.folders, db.lists, db.tasks, db.habits, db.habitLogs, db.focusSessions], async () => {
     await db.tasks.clear();
     await db.lists.clear();
     await db.folders.clear();
+    await db.habitLogs.clear();
+    await db.habits.clear();
+    await db.focusSessions.clear();
   });
 }

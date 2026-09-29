@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useBackHandler } from '../lib/backStack';
 
 export interface MenuItem {
   label: string;
@@ -24,6 +25,7 @@ export function Menu({ items, trigger, align = 'right', label, className }: Prop
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const id = useId();
+  useBackHandler(open, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;

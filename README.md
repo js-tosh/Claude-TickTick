@@ -1,138 +1,105 @@
-# Tasks — a personal TickTick-style to-do app
+# Tasks — a personal TickTick-style app for Android
 
-Offline-first to-do lists for you and your family. No account, no server, no
-subscription: every person's data lives on their own device, and a JSON backup
-moves it between devices when needed.
+To-do lists, a calendar, a Pomodoro focus timer and a habit tracker for you and
+your family. No account, no server, no subscription: everything is stored on
+the phone, and a backup file moves it to another device when needed.
 
-- **Folders → lists → tasks → subtasks**, like TickTick
-- Smart views: Inbox, Today (with Overdue), Next 7 Days, All, Completed, and one view per tag
-- Due date and time, priorities (high / medium / low), tags, notes, repeating tasks
-- Quick-add shortcuts: `Pay rent tomorrow !high #home`, `Call mom friday !2`, `Dentist 2026-10-03`, `next week`
-- Search, sort (manual / due date / priority / title), light and dark themes
-- Export to JSON (full backup) or CSV (spreadsheet); import by merging or replacing
-- Installable PWA on the web; the same code ships as an Android app through Capacitor
+The app has four tabs along the bottom:
 
-## How the pieces fit
+| Tab | What it does |
+|---|---|
+| **Tasks** | Folders → lists → tasks → subtasks. Inbox, Today, Next 7 Days, All, Completed, tags, search. Due date and time, priority, notes, repeat. Quick-add shortcuts such as `Pay rent tomorrow !high #home`. |
+| **Calendar** | Month, week and day views of every task with a due date. Tap a day to see it or add a task on it; tap a task to edit it. |
+| **Focus** | Name what you're working on and press **Focus**: 25 minutes of focus, an alarm, a 5-minute break, another alarm, and so on until you press End. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. |
+| **Habits** | Up to 4 habits. Each has an icon, a schedule (every day, chosen weekdays, or every few days), a daily goal ("achieve it all" or an amount such as 8 glasses), a start date, goal days, a section (Morning, Afternoon, Night, Others) and reminders. The tracker shows the last 7 days; each habit opens to its streak, check-in rate, goal progress, month calendar and notes. |
 
-| Piece | What it is | Where data lives |
-|---|---|---|
-| Web app | React + Vite PWA in `src/` | The browser's IndexedDB (per browser, per site) |
-| Android app | The web build wrapped by Capacitor in `android/` | IndexedDB inside the app's private storage |
-| Backup | `Settings & backup → Backup (JSON)` | A file you keep; import it anywhere |
+## Install on an Android phone
 
-There is deliberately **no sync**. Your phone and your laptop each hold their own
-list, and each family member has their own. Use export/import to copy data across.
+GitHub builds the app automatically (see `.github/workflows/android.yml`).
+Open one of these links **on the phone**:
 
-## Requirements
+- Latest version from `main`:
+  <https://github.com/js-tosh/Claude-TickTick/releases/latest/download/Tasks.apk>
+- Preview from the development branch:
+  <https://github.com/js-tosh/Claude-TickTick/releases/download/android-preview/Tasks.apk>
 
-- [Node.js](https://nodejs.org) 20 or newer (22 recommended)
-- For the Android app only: [Android Studio](https://developer.android.com/studio)
-  (it installs the Android SDK and a Java runtime)
+Then tap the downloaded file. The first time, Android asks you to allow
+installing apps from your browser; allow it and tap **Install**.
 
-Everything is free. No developer account is needed to share the APK with family.
+To update later, install the new APK the same way. It installs over the old
+version and keeps all tasks, habits and focus history. (Uninstalling the app
+deletes its data, so export a backup first if you ever do.)
 
-## Run the web app locally
+On first use the app asks for permission to send notifications. Allow it:
+that is how the focus alarm rings with the screen off and how habit reminders
+arrive.
+
+## Backups and moving data
+
+Open **Tasks → ☰ → Settings & backup**.
+
+- **Save or share backup** writes a JSON file of everything (tasks, habits,
+  check-ins, focus sessions) and opens Android's share sheet: save it to Drive
+  or Files, email it, or send it to a computer.
+- **Spreadsheet (CSV)** is a flat list of tasks for Excel or Google Sheets.
+- **Import → Merge** adds anything new and keeps the newer copy of anything
+  that exists on both sides. **Replace** wipes the phone first and loads the file.
+- **Copy backup / Paste a backup** does the same through the clipboard.
+
+## The web version
+
+The same app also runs in a browser (it is one React codebase). It keeps its
+data in that browser. Two limits there: habit reminders can't be sent, and the
+focus alarm only rings while the page is open.
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
 ```
 
-Other scripts:
+`.github/workflows/deploy-pages.yml` publishes it to GitHub Pages on every push
+to `main` once Pages is switched on (Settings → Pages → Source: GitHub Actions).
+
+## Development
+
+Requirements: [Node.js](https://nodejs.org) 20+ (22 recommended). For building
+the Android app on your own computer: [Android Studio](https://developer.android.com/studio)
+and JDK 21.
 
 ```bash
-npm test           # unit tests (Vitest, runs against an in-memory IndexedDB)
+npm test           # unit tests (Vitest, in-memory IndexedDB)
 npm run typecheck  # TypeScript
-npm run build      # production build into dist/
-npm run preview    # serve dist/ locally
+npm run build      # production web build into dist/
+npm run cap:sync   # build, then copy it into android/
+npm run cap:open:android   # open android/ in Android Studio (Build → Build APK)
 ```
 
-## Host the web app for free (GitHub Pages)
+### Signing
 
-The repository already contains `.github/workflows/deploy-pages.yml`, which
-builds and publishes on every push to `main`.
+Every build, on GitHub or locally, is signed with the key in
+`android/app/family-tasks.keystore` (password `family-tasks`). One fixed key is
+what lets a new APK install as an update. The key is public in this repository,
+which is fine for a family app that is installed by hand; to use a private key,
+add the repository secrets listed at the top of `android.yml`. Changing keys
+means uninstalling and reinstalling once (export a backup first).
 
-One switch has to be flipped by hand first, because the Actions token is not
-allowed to create a Pages site on its own:
-
-1. On GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Re-run the latest "Deploy to GitHub Pages" workflow from the Actions tab
-   (or push any commit to `main`).
-3. The app is live at `https://<your-user>.github.io/<repo-name>/` — for this
-   repository, <https://js-tosh.github.io/Claude-TickTick/>.
-
-Until step 1 is done the build job passes and the deploy job fails with a 404
-that says "Ensure GitHub Pages has been enabled". That is the expected message.
-
-Share that link with family. On a phone, "Add to Home Screen" installs it like an
-app and it keeps working offline. Each person's tasks stay in their own browser.
-
-Any static host works too (Cloudflare Pages, Netlify, a home server): run
-`npm run build` and upload `dist/`. If the app is served from a sub-path, set
-`BASE_PATH=/that-path/` when building, as the workflow does.
-
-## Build the Android app
-
-The first build is mostly waiting for Android Studio to download the SDK.
-
-```bash
-npm install
-npm run cap:sync          # builds the web app and copies it into android/
-npm run cap:open:android  # opens the android/ project in Android Studio
-```
-
-In Android Studio:
-
-1. Let it finish syncing Gradle (first time takes several minutes).
-2. **Build → Build Bundle(s) / APK(s) → Build APK(s)**.
-3. Click *locate* in the notification: the file is
-   `android/app/build/outputs/apk/debug/app-debug.apk`.
-
-Send that APK to family members (chat, email, USB). On their phone they tap it,
-allow "install from this source" once, and it installs. A debug APK is fine for
-personal use; nothing expires.
-
-After changing the app, run `npm run cap:sync` again and rebuild the APK.
-
-To test on a plugged-in phone or the emulator directly: `npm run cap:run:android`.
-
-App id and name are set in `capacitor.config.ts` (`com.family.tasks`, "Tasks").
-Change them before the first install if you like; changing the id later makes
-Android treat it as a different app.
-
-## Backup, restore, and moving between devices
-
-Open **Settings & backup** (bottom of the sidebar).
-
-- **Backup (JSON)** downloads everything: folders, lists, tasks, subtasks, tags.
-- **Spreadsheet (CSV)** is a flat task list for Excel or Google Sheets. It is
-  for viewing; the JSON file is the one you restore from.
-- **Copy backup** puts the JSON on the clipboard, for hosts or WebViews that
-  block downloads. Paste it into **Paste a backup** on the other device.
-- **Import → Merge** adds anything new and keeps the newer version of anything
-  that exists on both sides. Nothing is deleted. Safe to run repeatedly.
-- **Import → Replace** wipes the device first and loads the file as-is.
-
-Backups are plain JSON, so they are easy to inspect or process with other tools.
-
-## Project layout
+### Project layout
 
 ```
 src/
-  db/          Dexie (IndexedDB) schema, repository functions, backup import/export
-  hooks/       live queries and the pure view computation (Today, Next 7 Days, …)
-  lib/         date helpers, quick-add parser, ids
-  state/       UI state (current view, selected task, theme, sort)
-  components/  Sidebar, MainPane, TaskList, TaskRow, TaskDetail, dialogs
-  styles/      global.css (design tokens, light/dark, responsive layout)
-android/       Capacitor Android project (generated; open in Android Studio)
-public/icons/  app icons (SVG source + PNGs used by the PWA manifest)
+  db/          Dexie (IndexedDB) schema, repositories, backup import/export
+  lib/         pure logic: dates, quick-add parser, Pomodoro engine, habit stats,
+               calendar grids, notifications, platform helpers
+  state/       UI state and the focus-timer store
+  hooks/       live queries and view computation
+  components/  tasks UI, calendar/, focus/, habits/, dialogs/
+  styles/      global.css (design tokens, light/dark, phone and desktop layouts)
+android/       Capacitor Android project
+.github/       CI, APK build and release, GitHub Pages deploy
 ```
 
 ## Not in this version
 
-- Multi-device sync (by design; use export/import)
-- Reminder notifications on the phone (Capacitor's local-notifications plugin
-  is the natural next step; the data model already stores due date and time)
-- Drag-and-drop reordering (manual order currently puts newest tasks first)
-- Calendar view
+- Sync between devices (by design; use backup and import)
+- Reminders for individual tasks (habits have reminders; tasks show due times)
+- Drag-and-drop reordering

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { useBackHandler } from '../lib/backStack';
 import { CloseIcon } from './Icons';
 
 interface Props {
@@ -7,11 +8,13 @@ interface Props {
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  className?: string;
 }
 
 /** Accessible modal built on the native <dialog> element. */
-export function Modal({ title, onClose, children, footer, wide }: Props) {
+export function Modal({ title, onClose, children, footer, wide, className }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  useBackHandler(true, onClose);
 
   useEffect(() => {
     const el = ref.current;
@@ -28,7 +31,7 @@ export function Modal({ title, onClose, children, footer, wide }: Props) {
   return (
     <dialog
       ref={ref}
-      className={`modal${wide ? ' modal-wide' : ''}`}
+      className={`modal${wide ? ' modal-wide' : ''}${className ? ` ${className}` : ''}`}
       aria-label={title}
       onClick={(e) => {
         if (e.target === ref.current) onClose();
