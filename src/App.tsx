@@ -18,6 +18,7 @@ import { TaskDetail } from './components/TaskDetail';
 import { Dialogs } from './components/dialogs';
 import { TabBar } from './components/TabBar';
 import { CalendarTab } from './components/calendar/CalendarTab';
+import { MatrixTab } from './components/matrix/MatrixTab';
 import { FocusTab } from './components/focus/FocusTab';
 import { FocusRatingDialog } from './components/focus/FocusRatingDialog';
 import { HabitsTab } from './components/habits/HabitsTab';
@@ -67,6 +68,7 @@ export default function App() {
       <div className="tab-panel">
         {tab === 'tasks' && <TasksTab folders={folders} lists={lists} inbox={inbox} tasks={tasks} />}
         {tab === 'calendar' && <CalendarTab tasks={tasks} lists={lists} folders={folders} inbox={inbox} />}
+        {tab === 'matrix' && <MatrixTab tasks={tasks} lists={lists} folders={folders} inbox={inbox} />}
         {tab === 'focus' && <FocusTab />}
         {tab === 'habits' && <HabitsTab />}
       </div>

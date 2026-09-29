@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseQuickAdd } from './quickAdd';
+import { parseQuickAdd, resolveListRef } from './quickAdd';
 
 // Wednesday 2026-09-16 (a fixed "now" keeps weekday maths deterministic)
 const NOW = new Date(2026, 8, 16, 10, 0, 0);
 
 describe('parseQuickAdd', () => {
   it('keeps plain text as the title', () => {
-    expect(parseQuickAdd('Buy milk', NOW)).toEqual({ title: 'Buy milk', priority: null, tags: [], dueDate: null });
+    expect(parseQuickAdd('Buy milk', NOW)).toEqual({ title: 'Buy milk', priority: null, tags: [], dueDate: null, listRef: null });
   });
 
   it('extracts priority, tags and relative dates', () => {
@@ -39,5 +39,22 @@ describe('parseQuickAdd', () => {
   it('leaves unknown ! and # tokens alone', () => {
     const r = parseQuickAdd('Wow! #', NOW);
     expect(r.title).toBe('Wow! #');
+  });
+
+  it('sends the task to a list or folder with @', () => {
+    const r = parseQuickAdd('Close ticket @Work #support', NOW);
+    expect(r).toMatchObject({ title: 'Close ticket', listRef: 'Work', tags: ['support'] });
+    expect(parseQuickAdd('Email @', NOW).title).toBe('Email @');
+    const lists = [
+      { id: 'inbox', name: 'Inbox', folderId: null, sortOrder: -1 },
+      { id: 'w2', name: 'Work tasks', folderId: 'fw', sortOrder: 2 },
+      { id: 'w1', name: 'Projects', folderId: 'fw', sortOrder: 1 },
+      { id: 'pp', name: 'Personal Projects', folderId: null, sortOrder: 3 },
+    ];
+    const folders = [{ id: 'fw', name: 'Work' }];
+    expect(resolveListRef('work', lists, folders)).toBe('w1'); // first list in the Work folder
+    expect(resolveListRef('personal-projects', lists, folders)).toBe('pp');
+    expect(resolveListRef('Work-tasks', lists, folders)).toBe('w2');
+    expect(resolveListRef('nothing', lists, folders)).toBeNull();
   });
 });

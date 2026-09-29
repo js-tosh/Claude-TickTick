@@ -308,3 +308,11 @@ export const BellIcon = (p: P) => (
     <path d="M10 20.5a2 2 0 0 0 4 0" />
   </svg>
 );
+export const MatrixTabIcon = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+    <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+  </svg>
+);

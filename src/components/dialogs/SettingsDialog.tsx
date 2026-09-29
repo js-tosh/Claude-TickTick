@@ -222,7 +222,7 @@ export function SettingsDialog({ stats }: Props) {
         <h3>About</h3>
         <p className="muted small">
           Tasks, calendar, focus timer and habits. No account, no server: everything is stored on this device. Quick-add understands{' '}
-          <code>!high</code> / <code>!low</code>, <code>#tag</code>, <code>today</code>, <code>tomorrow</code>, weekday names,
+          <code>!high</code> / <code>!low</code>, <code>#tag</code>, <code>@list</code> (a list or folder name), <code>today</code>, <code>tomorrow</code>, weekday names,
           <code>next week</code> and dates like <code>2026-10-03</code>.
         </p>
       </section>

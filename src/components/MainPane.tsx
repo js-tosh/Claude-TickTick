@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Folder, List, Task } from '../db/types';
 import { useViewData } from '../hooks/useData';
 import { deleteCompletedInList } from '../db/repo';
@@ -7,6 +7,7 @@ import { useUI, type SortBy } from '../state/ui';
 import { MenuIcon, MoreIcon } from './Icons';
 import { Menu, type MenuEntry } from './Menu';
 import { QuickAdd } from './QuickAdd';
+import { Fab, QuickAddSheet } from './QuickAddSheet';
 import { TaskList } from './TaskList';
 
 interface Props {
@@ -27,6 +28,7 @@ export function MainPane({ tasks, lists, folders, inbox }: Props) {
   const ui = useUI();
   const { view, sortBy, setSortBy, showCompleted, setShowCompleted, openDialog, setSidebarOpen } = ui;
   const data = useViewData(view, tasks, inbox.id, sortBy);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const currentList = view.kind === 'list' ? lists.find((l) => l.id === view.listId) : view.kind === 'inbox' ? inbox : undefined;
   const folder = currentList?.folderId ? folders.find((f) => f.id === currentList.folderId) : undefined;
@@ -139,6 +141,21 @@ export function MainPane({ tasks, lists, folders, inbox }: Props) {
                 ? `Add a task tagged #${view.tag}…`
                 : undefined
           }
+        />
+      )}
+      {canQuickAdd && <Fab onClick={() => setSheetOpen(true)} />}
+      {sheetOpen && (
+        <QuickAddSheet
+          listId={quickAddListId}
+          defaults={quickDefaults}
+          note={
+            view.kind === 'today' || view.kind === 'week'
+              ? 'Due today · adds to Inbox unless you write @list'
+              : view.kind === 'tag'
+                ? `Tagged #${view.tag} · adds to Inbox unless you write @list`
+                : `Adds to ${currentList?.name ?? 'Inbox'} unless you write @list`
+          }
+          onClose={() => setSheetOpen(false)}
         />
       )}
 

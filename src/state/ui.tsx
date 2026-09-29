@@ -10,7 +10,7 @@ export type View =
   | { kind: 'tag'; tag: string }
   | { kind: 'search'; query: string };
 
-export type Tab = 'tasks' | 'calendar' | 'focus' | 'habits';
+export type Tab = 'tasks' | 'calendar' | 'matrix' | 'focus' | 'habits';
 
 export type SortBy = 'manual' | 'dueDate' | 'priority' | 'title';
 export type Theme = 'system' | 'light' | 'dark';

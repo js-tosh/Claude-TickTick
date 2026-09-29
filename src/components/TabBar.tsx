@@ -2,11 +2,12 @@ import type { ComponentType } from 'react';
 import { formatClock, phaseAt, phaseRemaining } from '../lib/pomodoro';
 import { useFocusTimer } from '../state/focusTimer';
 import { useUI, type Tab } from '../state/ui';
-import { CalendarTabIcon, HabitTabIcon, TasksTabIcon, TimerIcon } from './Icons';
+import { CalendarTabIcon, HabitTabIcon, MatrixTabIcon, TasksTabIcon, TimerIcon } from './Icons';
 
 const TABS: { id: Tab; label: string; Icon: ComponentType<{ size?: number }> }[] = [
   { id: 'tasks', label: 'Tasks', Icon: TasksTabIcon },
   { id: 'calendar', label: 'Calendar', Icon: CalendarTabIcon },
+  { id: 'matrix', label: 'Matrix', Icon: MatrixTabIcon },
   { id: 'focus', label: 'Focus', Icon: TimerIcon },
   { id: 'habits', label: 'Habits', Icon: HabitTabIcon },
 ];

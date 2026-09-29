@@ -7,6 +7,8 @@ export interface ParsedQuickAdd {
   priority: Priority | null;
   tags: string[];
   dueDate: string | null;
+  /** "@Work" → "Work": the list (or folder) the task should go to. */
+  listRef: string | null;
 }
 
 const WEEKDAYS: Record<string, Day> = {
@@ -30,6 +32,7 @@ const PRIORITY_WORDS: Record<string, Priority> = {
  *   "Pay rent tomorrow !high #home #money"
  *   "Call mom friday !2"
  *   "Dentist 2026-10-03"
+ *   "Close ticket @Work"   (list or folder named Work)
  * Anything not recognised stays in the title.
  */
 export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickAdd {
@@ -38,6 +41,7 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
   let priority: Priority | null = null;
   const tags: string[] = [];
   let dueDate: string | null = null;
+  let listRef: string | null = null;
   const today = startOfDay(now);
 
   for (let i = 0; i < tokens.length; i++) {
@@ -56,6 +60,12 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
     // Tag: #home
     if (tok.startsWith('#') && tok.length > 1) {
       tags.push(tok.slice(1));
+      continue;
+    }
+
+    // List or folder: @Work (only the first one counts)
+    if (tok.startsWith('@') && tok.length > 1 && listRef === null) {
+      listRef = tok.slice(1);
       continue;
     }
 
@@ -95,5 +105,28 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
     kept.push(tok);
   }
 
-  return { title: kept.join(' ').trim(), priority, tags, dueDate };
+  return { title: kept.join(' ').trim(), priority, tags, dueDate, listRef };
+}
+
+/** Compare names loosely: "personal-projects" matches "Personal Projects". */
+export function namesMatch(a: string, b: string): boolean {
+  const norm = (v: string) => v.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return norm(a) === norm(b);
+}
+
+/**
+ * Turn "@Work" into a list id: a list named Work first, otherwise the first
+ * list inside a folder named Work. null when nothing matches.
+ */
+export function resolveListRef(
+  ref: string,
+  lists: { id: string; name: string; folderId: string | null; sortOrder: number }[],
+  folders: { id: string; name: string }[],
+): string | null {
+  const list = lists.find((l) => namesMatch(l.name, ref));
+  if (list) return list.id;
+  const folder = folders.find((f) => namesMatch(f.name, ref));
+  if (!folder) return null;
+  const inside = lists.filter((l) => l.folderId === folder.id).sort((a, b) => a.sortOrder - b.sortOrder);
+  return inside[0]?.id ?? null;
 }

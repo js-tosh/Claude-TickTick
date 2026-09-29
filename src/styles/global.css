@@ -2673,3 +2673,253 @@ input.select {
 .sound-loading {
   padding: 10px 12px;
 }
+
+/* ===========================================================================
+   Floating + button and quick-add sheet (phones)
+=========================================================================== */
+.fab {
+  display: none;
+  position: fixed;
+  right: 20px;
+  bottom: calc(var(--tabbar-h) + var(--sab) + 18px);
+  z-index: 25;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(71, 114, 250, 0.45);
+  align-items: center;
+  justify-content: center;
+}
+.fab:active {
+  transform: scale(0.96);
+}
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.4);
+}
+.sheet {
+  width: 100%;
+  padding: 8px 16px calc(16px + var(--sab));
+  border-radius: 18px 18px 0 0;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow);
+  animation: sheet-in 0.18s ease-out;
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  margin: 0 auto 10px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.sheet-note {
+  margin-bottom: 6px;
+}
+.sheet .quick-add {
+  margin: 0;
+}
+.sheet-hint {
+  margin-top: 8px;
+}
+@media (min-width: 761px) {
+  .sheet-scrim {
+    align-items: center;
+    justify-content: center;
+  }
+  .sheet {
+    max-width: 560px;
+    border-radius: 14px;
+  }
+}
+@media (max-width: 760px) {
+  .quick-add.inline {
+    display: none;
+  }
+  .fab {
+    display: inline-flex;
+  }
+  .shell.kb-open .fab,
+  .app.has-detail .fab,
+  .calendar-layout.has-detail .fab {
+    display: none;
+  }
+}
+
+/* ===========================================================================
+   Eisenhower matrix
+=========================================================================== */
+.matrix-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+@media (min-width: 1101px) {
+  .matrix-layout.has-detail {
+    grid-template-columns: minmax(0, 1fr) var(--detail-w);
+  }
+}
+.matrix-main {
+  min-height: 0;
+}
+.btn.small.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.matrix-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+.quadrant {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.quadrant-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px 4px 10px;
+}
+.quadrant-numeral {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+.quadrant-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quadrant-count {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.q-high .quadrant-numeral,
+.q-high .quadrant-title {
+  background-color: var(--p-high);
+}
+.q-med .quadrant-numeral,
+.q-med .quadrant-title {
+  background-color: var(--p-med);
+}
+.q-low .quadrant-numeral,
+.q-low .quadrant-title {
+  background-color: var(--p-low);
+}
+.q-none .quadrant-numeral,
+.q-none .quadrant-title {
+  background-color: var(--success);
+}
+.quadrant-title {
+  background-color: transparent !important;
+}
+.q-high .quadrant-title {
+  color: var(--p-high);
+}
+.q-med .quadrant-title {
+  color: var(--p-med);
+}
+.q-low .quadrant-title {
+  color: var(--p-low);
+}
+.q-none .quadrant-title {
+  color: var(--success);
+}
+.quadrant-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 8px;
+}
+.quadrant-empty {
+  padding: 8px 6px;
+}
+.matrix-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.matrix-row:hover {
+  background: var(--bg-hover);
+}
+.matrix-row.selected {
+  background: var(--bg-active);
+}
+.matrix-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.matrix-row-title {
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.matrix-row.done .matrix-row-title {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.matrix-row .task-meta {
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .matrix-grid {
+    gap: 6px;
+    padding: 0 8px 8px;
+  }
+  .quadrant-head {
+    padding: 6px 2px 2px 8px;
+  }
+  .quadrant-head .icon-btn.subtle {
+    width: 24px;
+    height: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .quadrant-title {
+    white-space: normal;
+    line-height: 1.15;
+    font-size: 12px;
+  }
+}

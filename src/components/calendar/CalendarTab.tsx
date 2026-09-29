@@ -8,6 +8,7 @@ import { daysInMonth, shiftKey } from '../../lib/daynum';
 import { useUI } from '../../state/ui';
 import { ChevronIcon, ChevronLeftIcon } from '../Icons';
 import { QuickAdd } from '../QuickAdd';
+import { Fab, QuickAddSheet } from '../QuickAddSheet';
 import { TaskDetail } from '../TaskDetail';
 import { TaskRow } from '../TaskRow';
 
@@ -53,6 +54,7 @@ export function CalendarTab({ tasks, lists, folders, inbox }: Props) {
   const [mode, setModeState] = useState<Mode>(readMode);
   const [cursor, setCursor] = useState(today);
   const { selectedTaskId, selectTask } = useUI();
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const setMode = (m: Mode) => {
     setModeState(m);
@@ -132,6 +134,15 @@ export function CalendarTab({ tasks, lists, folders, inbox }: Props) {
         </div>
       </main>
       {selectedTaskId && <TaskDetail key={selectedTaskId} taskId={selectedTaskId} lists={lists} folders={folders} />}
+      <Fab onClick={() => setSheetOpen(true)} />
+      {sheetOpen && (
+        <QuickAddSheet
+          listId={inbox.id}
+          defaults={{ dueDate: cursor }}
+          note={`Due ${cursor === today ? 'today' : format(parseKey(cursor), 'EEE, MMM d')} · adds to Inbox unless you write @list`}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
     </div>
   );
 }
