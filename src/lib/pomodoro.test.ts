@@ -3,6 +3,7 @@ import {
   activeElapsed,
   advance,
   buildScheduledPlan,
+  confirmPhase,
   finishTotals,
   formatClock,
   formatDuration,
@@ -12,8 +13,8 @@ import {
   resumeTimer,
   sessionRemaining,
   skipPhase,
+  nextTransition,
   startTimer,
-  upcomingTransitions,
 } from './pomodoro';
 
 const MIN = 60_000;
@@ -33,36 +34,50 @@ describe('buildScheduledPlan', () => {
   });
 });
 
-describe('endless mode', () => {
-  it('alternates 25-minute focus and 5-minute break forever', () => {
+describe('endless mode with confirmation', () => {
+  it('ends the focus block, then waits until the break is confirmed', () => {
     const s = startTimer({ id: 'a', activity: 'Study', mode: 'endless' }, T0);
     expect(phaseRemaining(s, T0)).toBe(25 * MIN);
 
     const r1 = advance(s, T0 + 25 * MIN);
     expect(r1.transitions).toEqual([{ at: T0 + 25 * MIN, from: 'focus', to: 'break' }]);
     expect(r1.state.pomodoros).toBe(1);
-    expect(phaseRemaining(r1.state, T0 + 25 * MIN)).toBe(5 * MIN);
+    expect(r1.state.awaitingConfirm).toBe(true);
+    expect(r1.state.waitingSince).toBe(T0 + 25 * MIN);
+    // Waiting: nothing counts, the break has not started, no matter how long it takes.
+    expect(phaseRemaining(r1.state, T0 + 60 * MIN)).toBe(5 * MIN);
+    expect(activeElapsed(r1.state, T0 + 60 * MIN)).toBe(25 * MIN);
+    expect(advance(r1.state, T0 + 3 * 60 * MIN).transitions).toEqual([]);
+    expect(pauseTimer(r1.state, T0 + 30 * MIN)).toBe(r1.state);
+    expect(nextTransition(r1.state, T0 + 30 * MIN)).toBeNull();
 
-    const r2 = advance(r1.state, T0 + 30 * MIN);
-    expect(r2.transitions[0]).toEqual({ at: T0 + 30 * MIN, from: 'break', to: 'focus' });
+    // Confirmed 12 minutes later: the break starts then.
+    const b = confirmPhase(r1.state, T0 + 37 * MIN);
+    expect(b.awaitingConfirm).toBe(false);
+    expect(phaseRemaining(b, T0 + 37 * MIN)).toBe(5 * MIN);
+    expect(nextTransition(b, T0 + 37 * MIN)).toEqual({ at: T0 + 42 * MIN, from: 'break', to: 'focus' });
+    const r2 = advance(b, T0 + 42 * MIN);
+    expect(r2.transitions[0]).toEqual({ at: T0 + 42 * MIN, from: 'break', to: 'focus' });
+    expect(r2.state.awaitingConfirm).toBe(true);
     expect(r2.finishedAt).toBeNull();
+    expect(confirmPhase(confirmPhase(r2.state, T0 + 43 * MIN), T0 + 50 * MIN).phaseStart).toBe(T0 + 43 * MIN);
   });
 
-  it('catches up after the phone slept for hours', () => {
+  it('only ever completes one phase per catch-up, even after hours asleep', () => {
     const s = startTimer({ id: 'a', activity: '', mode: 'endless' }, T0);
-    const r = advance(s, T0 + 3 * 60 * MIN + 2 * MIN); // 6 full rounds + 2 min
-    expect(r.state.pomodoros).toBe(6);
-    expect(r.state.focusMs).toBe(6 * 25 * MIN);
-    expect(r.state.breakMs).toBe(6 * 5 * MIN);
-    expect(r.transitions).toHaveLength(12);
+    const r = advance(s, T0 + 3 * 60 * MIN);
+    expect(r.state.pomodoros).toBe(1);
+    expect(r.state.focusMs).toBe(25 * MIN);
+    expect(r.transitions).toHaveLength(1);
     expect(r.state.activity).toBe('Focus');
   });
 
-  it('skip ends the current phase early and keeps the partial time', () => {
+  it('skip ends the current phase early and starts the next one right away', () => {
     const s = startTimer({ id: 'a', activity: 'x', mode: 'endless' }, T0);
     const skipped = skipPhase(s, T0 + 10 * MIN);
     expect(skipped.focusMs).toBe(10 * MIN);
     expect(skipped.pomodoros).toBe(0);
+    expect(skipped.awaitingConfirm).toBe(false);
     expect(phaseRemaining(skipped, T0 + 10 * MIN)).toBe(5 * MIN); // now on break
   });
 });
@@ -73,48 +88,54 @@ describe('pause and resume', () => {
     const paused = pauseTimer(s, T0 + 10 * MIN);
     expect(phaseRemaining(paused, T0 + 60 * MIN)).toBe(15 * MIN);
     expect(advance(paused, T0 + 60 * MIN).transitions).toEqual([]);
+    expect(nextTransition(paused, T0 + 60 * MIN)).toBeNull();
     const resumed = resumeTimer(paused, T0 + 20 * MIN);
     expect(phaseRemaining(resumed, T0 + 20 * MIN)).toBe(15 * MIN);
     expect(advance(resumed, T0 + 35 * MIN).transitions[0].at).toBe(T0 + 35 * MIN);
-    expect(upcomingTransitions(paused, T0, 5)).toEqual([]);
   });
 });
 
 describe('scheduled mode', () => {
-  it('finishes exactly at the planned length', () => {
-    const s = startTimer({ id: 'a', activity: 'Essay', mode: 'scheduled', plannedMinutes: 45 }, T0);
+  it('waits at each change and finishes on the last block', () => {
+    let s = startTimer({ id: 'a', activity: 'Essay', mode: 'scheduled', plannedMinutes: 45 }, T0);
     expect(sessionRemaining(s, T0)).toBe(45 * MIN);
-    const r = advance(s, T0 + 50 * MIN);
-    expect(r.finishedAt).toBe(T0 + 45 * MIN);
-    expect(r.transitions.map((t) => t.to)).toEqual(['break', 'focus', null]);
+    let r = advance(s, T0 + 50 * MIN); // slept through: only the first block completes
+    expect(r.finishedAt).toBeNull();
+    expect(r.state.awaitingConfirm).toBe(true);
+    expect(sessionRemaining(r.state, T0 + 50 * MIN)).toBe(20 * MIN);
+    s = confirmPhase(r.state, T0 + 50 * MIN); // break 5
+    r = advance(s, T0 + 55 * MIN);
+    expect(r.transitions[0].to).toBe('focus');
+    s = confirmPhase(r.state, T0 + 60 * MIN); // last focus 15
+    expect(nextTransition(s, T0 + 60 * MIN)).toEqual({ at: T0 + 75 * MIN, from: 'focus', to: null });
+    r = advance(s, T0 + 80 * MIN);
+    expect(r.finishedAt).toBe(T0 + 75 * MIN);
+    expect(r.state.awaitingConfirm).toBe(false);
     expect(r.state.focusMs).toBe(40 * MIN);
     expect(r.state.pomodoros).toBe(2);
   });
 
-  it('lists upcoming alarms including the final one', () => {
-    const s = startTimer({ id: 'a', activity: 'x', mode: 'scheduled', plannedMinutes: 90 }, T0);
-    const up = upcomingTransitions(s, T0, 50);
-    expect(up.map((t) => (t.at - T0) / MIN)).toEqual([25, 30, 55, 60, 90]);
-    expect(up[up.length - 1].to).toBeNull();
-  });
-
-  it('counts pauses out of the session length', () => {
+  it('counts neither pauses nor waiting time toward the session length', () => {
     let s = startTimer({ id: 'a', activity: 'x', mode: 'scheduled', plannedMinutes: 45 }, T0);
     s = pauseTimer(s, T0 + 5 * MIN);
     s = resumeTimer(s, T0 + 15 * MIN);
     expect(sessionRemaining(s, T0 + 15 * MIN)).toBe(40 * MIN);
-    expect(advance(s, T0 + 55 * MIN).finishedAt).toBe(T0 + 55 * MIN);
+    const r = advance(s, T0 + 35 * MIN); // first block done at T0+35
+    expect(sessionRemaining(r.state, T0 + 90 * MIN)).toBe(20 * MIN);
   });
 });
 
 describe('finishTotals', () => {
-  it('includes the partial current phase', () => {
-    const s = advance(startTimer({ id: 'a', activity: 'x', mode: 'endless' }, T0), T0 + 40 * MIN).state;
-    const t = finishTotals(s, T0 + 40 * MIN);
+  it('includes the partial current phase, and ends a waiting session when the wait began', () => {
+    const b = confirmPhase(advance(startTimer({ id: 'a', activity: 'x', mode: 'endless' }, T0), T0 + 25 * MIN).state, T0 + 25 * MIN);
+    const f = confirmPhase(advance(b, T0 + 30 * MIN).state, T0 + 30 * MIN);
+    const t = finishTotals(f, T0 + 40 * MIN);
     expect(t.focusMs).toBe(35 * MIN);
     expect(t.breakMs).toBe(5 * MIN);
     expect(t.pomodoros).toBe(1);
-    expect(activeElapsed(s, T0 + 40 * MIN)).toBe(40 * MIN);
+    expect(activeElapsed(f, T0 + 40 * MIN)).toBe(40 * MIN);
+    const w = advance(startTimer({ id: 'a', activity: 'x', mode: 'endless' }, T0), T0 + 25 * MIN).state;
+    expect(finishTotals(w, T0 + 90 * MIN)).toMatchObject({ focusMs: 25 * MIN, breakMs: 0, endedAt: T0 + 25 * MIN });
   });
 });
 

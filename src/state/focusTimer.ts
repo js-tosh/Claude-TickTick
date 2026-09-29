@@ -9,16 +9,17 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { saveFocusSession } from '../db/focus';
 import type { FocusMode, FocusSession } from '../db/types';
 import { newId } from '../lib/ids';
-import { cancelFocusAlarms, notificationPermission, scheduleFocusAlarms } from '../lib/notifications';
+import { cancelFocusAlarms, notificationPermission, scheduleFocusAlarm } from '../lib/notifications';
 import { isNative } from '../lib/platform';
 import {
   advance,
+  confirmPhase,
   finishTotals,
+  nextTransition,
   pauseTimer,
   resumeTimer,
   skipPhase,
   startTimer,
-  upcomingTransitions,
   type TimerState,
 } from '../lib/pomodoro';
 import { playChime, unlockAudio } from '../lib/sound';
@@ -26,8 +27,6 @@ import { playChime, unlockAudio } from '../lib/sound';
 const STORAGE_KEY = 'tt.focus.v1';
 /** Sessions shorter than this are not worth recording. */
 export const MIN_SESSION_MS = 60_000;
-/** Alarms scheduled ahead of time (endless mode refills them as it goes). */
-const ALARM_HORIZON = 16;
 
 export interface FocusSnapshot {
   timer: TimerState | null;
@@ -44,7 +43,9 @@ function load(): FocusSnapshot {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return empty;
     const v = JSON.parse(raw) as Partial<FocusSnapshot>;
-    return { ...empty, ...v, alarmsAsNotifications: false };
+    // Timers saved by an older version have no confirmation fields.
+    const timer = v.timer ? { ...v.timer, awaitingConfirm: v.timer.awaitingConfirm ?? false, waitingSince: v.timer.waitingSince ?? null } : null;
+    return { ...empty, ...v, timer, alarmsAsNotifications: false };
   } catch {
     return empty;
   }
@@ -65,7 +66,7 @@ function update(next: Partial<FocusSnapshot>) {
     /* storage full or blocked: the timer still works for this run */
   }
   for (const l of listeners) l();
-  const running = !!snap.timer && snap.timer.pausedAt === null;
+  const running = !!snap.timer && snap.timer.pausedAt === null && !snap.timer.awaitingConfirm;
   if (running && !interval) interval = setInterval(tick, 1000);
   if (!running && interval) {
     clearInterval(interval);
@@ -82,19 +83,30 @@ export function getFocusSnapshot(): FocusSnapshot {
   return snap;
 }
 
+/**
+ * Keep the system alarm in step with the timer. Called when the user changes
+ * the timer (start, pause, resume, skip, confirm, end) and when the app comes
+ * to the foreground; never from a background tick, so an alarm that has just
+ * rung is left alone until the user acts on it.
+ */
 function syncAlarms(timer: TimerState | null) {
   if (!isNative) return;
-  if (!timer || timer.pausedAt !== null) {
+  if (!timer) {
+    // Session over. Its "rate me" alarm keeps repeating until the app is opened.
+    if (document.visibilityState === 'visible') void cancelFocusAlarms();
+    return;
+  }
+  if (timer.awaitingConfirm) return; // the phase-end alarm keeps repeating until confirmed
+  if (timer.pausedAt !== null) {
     void cancelFocusAlarms();
     return;
   }
-  const plan = upcomingTransitions(timer, Date.now(), ALARM_HORIZON).map((t) => ({ at: t.at, to: t.to }));
-  void scheduleFocusAlarms(plan, timer.activity);
+  const next = nextTransition(timer, Date.now());
+  void scheduleFocusAlarm(next && { at: next.at, to: next.to }, timer.activity);
 }
 
 async function finalize(timer: TimerState, endAt: number): Promise<'saved' | 'discarded'> {
   const totals = finishTotals(timer, endAt);
-  void cancelFocusAlarms();
   if (totals.focusMs < MIN_SESSION_MS) {
     update({ timer: null });
     return 'discarded';
@@ -115,6 +127,7 @@ async function finalize(timer: TimerState, endAt: number): Promise<'saved' | 'di
   // Saved right away (unrated) so nothing is lost if the app closes before rating.
   await saveFocusSession(session);
   update({ timer: null, pendingRatingId: session.id });
+  syncAlarms(null);
   return 'saved';
 }
 
@@ -137,8 +150,9 @@ async function tick() {
       await finalize(r.state, r.finishedAt);
       return;
     }
+    // The timer now waits for confirmation. The alarm already scheduled for
+    // this moment keeps repeating on its own, so the alarms are not touched.
     update({ timer: r.state });
-    syncAlarms(r.state); // endless mode: keep alarms scheduled ahead
   } finally {
     ticking = false;
   }
@@ -177,6 +191,15 @@ export function resumeFocus() {
   syncAlarms(timer);
 }
 
+/** The user confirmed the next phase (in the app or from the notification). */
+export function confirmFocusPhase() {
+  if (!snap.timer?.awaitingConfirm) return;
+  unlockAudio();
+  const timer = confirmPhase(snap.timer, Date.now());
+  update({ timer });
+  syncAlarms(timer);
+}
+
 export function skipFocusPhase() {
   if (!snap.timer) return;
   const now = Date.now();
@@ -190,7 +213,9 @@ export async function stopFocus(): Promise<'saved' | 'discarded' | 'none'> {
   if (!snap.timer) return 'none';
   const now = Date.now();
   const r = advance(snap.timer, now);
-  return finalize(r.state, r.finishedAt ?? now);
+  const result = await finalize(r.state, r.finishedAt ?? now);
+  if (result === 'discarded') void cancelFocusAlarms();
+  return result;
 }
 
 export function askRating(sessionId: string) {
@@ -205,21 +230,21 @@ export function clearPendingRating() {
 // Wake-ups: catch up when the app comes back to the foreground.
 // ---------------------------------------------------------------------------
 
-function wake() {
-  void tick();
+async function wake() {
+  await tick(); // catch up first, so the alarms match the timer's real state
   syncAlarms(snap.timer);
 }
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') wake();
+    if (document.visibilityState === 'visible') void wake();
   });
   if (isNative) {
     void import('@capacitor/app').then(({ App }) =>
       App.addListener('appStateChange', ({ isActive }) => {
         if (isActive) {
           void refreshPermission(false);
-          wake();
+          void wake();
         }
       }),
     );
@@ -227,7 +252,7 @@ if (typeof document !== 'undefined') {
   // Resume where we left off after a restart.
   void refreshPermission(false).then(() => {
     update({});
-    wake();
+    void wake();
   });
 }
 
@@ -242,8 +267,9 @@ export function useFocusSnapshot(): FocusSnapshot {
 
 export function useFocusTimer(): FocusSnapshot & { now: number } {
   const s = useSyncExternalStore(subscribe, getFocusSnapshot);
-  const running = !!s.timer && s.timer.pausedAt === null;
-  const now = useNow(running ? 250 : null);
+  const running = !!s.timer && s.timer.pausedAt === null && !s.timer.awaitingConfirm;
+  // Fast clock while counting down; a slow one while waiting (for "ended 12 min ago").
+  const now = useNow(running ? 250 : s.timer?.awaitingConfirm ? 15_000 : null);
   return { ...s, now };
 }
 

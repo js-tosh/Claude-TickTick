@@ -33,6 +33,13 @@ export interface TimerState {
   /** When the current phase started, shifted forward by any pauses. */
   phaseStart: number;
   pausedAt: number | null;
+  /**
+   * The previous phase has ended and the timer is waiting for the user to
+   * confirm the next one (e.g. "Start break"). Nothing counts while waiting.
+   */
+  awaitingConfirm: boolean;
+  /** When the wait began (the moment the previous phase ended). */
+  waitingSince: number | null;
   /** Totals of phases already finished (or cut short by skip). */
   focusMs: number;
   breakMs: number;
@@ -87,6 +94,8 @@ export function startTimer(
     phaseIndex: 0,
     phaseStart: now,
     pausedAt: null,
+    awaitingConfirm: false,
+    waitingSince: null,
     focusMs: 0,
     breakMs: 0,
     pomodoros: 0,
@@ -100,33 +109,42 @@ export interface AdvanceResult {
   finishedAt: number | null;
 }
 
-/** Move the timer forward to `now`, completing any phases whose time is up. */
+/**
+ * Move the timer forward to `now`. When the current phase's time is up it is
+ * completed and the timer stops to wait for confirmation of the next phase
+ * (see confirmPhase); the last phase of a scheduled session ends the session.
+ */
 export function advance(s: TimerState, now: number): AdvanceResult {
-  if (s.pausedAt !== null) return { state: s, transitions: [], finishedAt: null };
+  if (s.pausedAt !== null || s.awaitingConfirm) return { state: s, transitions: [], finishedAt: null };
+  const phase = phaseAt(s, s.phaseIndex);
+  if (!phase) return { state: s, transitions: [], finishedAt: null };
+  const end = s.phaseStart + phase.ms;
+  if (now < end) return { state: s, transitions: [], finishedAt: null };
   const st: TimerState = { ...s };
-  const transitions: Transition[] = [];
-  for (let guard = 0; guard < 100_000; guard++) {
-    const phase = phaseAt(st, st.phaseIndex);
-    if (!phase) break;
-    const end = st.phaseStart + phase.ms;
-    if (now < end) break;
-    if (phase.kind === 'focus') {
-      st.focusMs += phase.ms;
-      st.pomodoros += 1;
-    } else {
-      st.breakMs += phase.ms;
-    }
-    const next = phaseAt(st, st.phaseIndex + 1);
-    transitions.push({ at: end, from: phase.kind, to: next?.kind ?? null });
-    st.phaseIndex += 1;
-    st.phaseStart = end;
-    if (!next) return { state: st, transitions, finishedAt: end };
+  if (phase.kind === 'focus') {
+    st.focusMs += phase.ms;
+    st.pomodoros += 1;
+  } else {
+    st.breakMs += phase.ms;
   }
+  const next = phaseAt(st, st.phaseIndex + 1);
+  const transitions: Transition[] = [{ at: end, from: phase.kind, to: next?.kind ?? null }];
+  st.phaseIndex += 1;
+  st.phaseStart = end;
+  if (!next) return { state: st, transitions, finishedAt: end };
+  st.awaitingConfirm = true;
+  st.waitingSince = end;
   return { state: st, transitions, finishedAt: null };
 }
 
+/** The user confirmed the next phase: start it now. */
+export function confirmPhase(s: TimerState, now: number): TimerState {
+  if (!s.awaitingConfirm) return s;
+  return { ...s, awaitingConfirm: false, waitingSince: null, phaseStart: now, pausedAt: null };
+}
+
 export function pauseTimer(s: TimerState, now: number): TimerState {
-  return s.pausedAt !== null ? s : { ...s, pausedAt: now };
+  return s.pausedAt !== null || s.awaitingConfirm ? s : { ...s, pausedAt: now };
 }
 
 export function resumeTimer(s: TimerState, now: number): TimerState {
@@ -137,7 +155,7 @@ export function resumeTimer(s: TimerState, now: number): TimerState {
 /** Time already spent in the current phase. */
 export function phaseElapsed(s: TimerState, now: number): number {
   const phase = phaseAt(s, s.phaseIndex);
-  if (!phase) return 0;
+  if (!phase || s.awaitingConfirm) return 0;
   const ref = s.pausedAt ?? now;
   return Math.max(0, Math.min(phase.ms, ref - s.phaseStart));
 }
@@ -162,7 +180,7 @@ export function sessionRemaining(s: TimerState, now: number): number | null {
 /** End the current phase early and start the next one now (endless mode). */
 export function skipPhase(s: TimerState, now: number): TimerState {
   const phase = phaseAt(s, s.phaseIndex);
-  if (!phase) return s;
+  if (!phase || s.awaitingConfirm) return s;
   const elapsed = phaseElapsed(s, now);
   return {
     ...s,
@@ -182,27 +200,21 @@ export function finishTotals(s: TimerState, now: number): { focusMs: number; bre
     focusMs: s.focusMs + (phase?.kind === 'focus' ? elapsed : 0),
     breakMs: s.breakMs + (phase?.kind === 'break' ? elapsed : 0),
     pomodoros: s.pomodoros,
-    endedAt: s.pausedAt ?? now,
+    endedAt: s.waitingSince ?? s.pausedAt ?? now,
   };
 }
 
-/** The next `limit` phase changes, for scheduling alarms ahead of time. */
-export function upcomingTransitions(s: TimerState, now: number, limit: number): Transition[] {
-  if (s.pausedAt !== null) return [];
-  const out: Transition[] = [];
-  let index = s.phaseIndex;
-  let start = s.phaseStart;
-  while (out.length < limit) {
-    const phase = phaseAt(s, index);
-    if (!phase) break;
-    const end = start + phase.ms;
-    const next = phaseAt(s, index + 1);
-    if (end > now) out.push({ at: end, from: phase.kind, to: next?.kind ?? null });
-    if (!next) break;
-    index++;
-    start = end;
-  }
-  return out;
+/**
+ * The end of the phase that is running now, for scheduling its alarm.
+ * Nothing further can be known: every later phase waits for a confirmation.
+ */
+export function nextTransition(s: TimerState, now: number): Transition | null {
+  if (s.pausedAt !== null || s.awaitingConfirm) return null;
+  const phase = phaseAt(s, s.phaseIndex);
+  if (!phase) return null;
+  const end = s.phaseStart + phase.ms;
+  if (end <= now) return null;
+  return { at: end, from: phase.kind, to: phaseAt(s, s.phaseIndex + 1)?.kind ?? null };
 }
 
 /** "25:00", "1:04:59" */

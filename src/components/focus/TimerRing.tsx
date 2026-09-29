@@ -5,16 +5,17 @@ interface Props {
   progress: number;
   phase: 'focus' | 'break';
   paused: boolean;
+  waiting?: boolean;
   children: ReactNode;
 }
 
 const R = 110;
 const C = 2 * Math.PI * R;
 
-export function TimerRing({ progress, phase, paused, children }: Props) {
+export function TimerRing({ progress, phase, paused, waiting, children }: Props) {
   const p = Math.max(0, Math.min(1, progress));
   return (
-    <div className={`timer-ring ${phase}${paused ? ' paused' : ''}`}>
+    <div className={`timer-ring ${phase}${paused ? ' paused' : ''}${waiting ? ' waiting' : ''}`}>
       <svg viewBox="0 0 240 240" aria-hidden="true">
         <circle className="ring-track" cx="120" cy="120" r={R} />
         <circle

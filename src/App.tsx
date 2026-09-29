@@ -8,7 +8,8 @@ import { useAllTasks, useCounts, useFolders, useInbox, useLists, useTags } from 
 import { useToday } from './hooks/useToday';
 import { runTopBackHandler, useBackHandler } from './lib/backStack';
 import { groupLogs } from './lib/habitStats';
-import { onNotificationTap, scheduleHabitReminders } from './lib/notifications';
+import { CONFIRM_ACTION_ID, onNotificationTap, scheduleHabitReminders } from './lib/notifications';
+import { confirmFocusPhase } from './state/focusTimer';
 import { isNative } from './lib/platform';
 import { useUI, type Theme } from './state/ui';
 import { Sidebar } from './components/Sidebar';
@@ -143,9 +144,13 @@ function useNotificationTaps(setTab: (t: 'focus' | 'habits') => void) {
   useEffect(() => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void onNotificationTap((kind) => {
-      if (kind === 'focus') setTab('focus');
-      else if (kind === 'habit') setTab('habits');
+    void onNotificationTap(({ kind, actionId }) => {
+      if (kind === 'focus') {
+        setTab('focus');
+        if (actionId === CONFIRM_ACTION_ID) confirmFocusPhase();
+      } else if (kind === 'habit') {
+        setTab('habits');
+      }
     }).then((f) => {
       if (cancelled) f();
       else off = f;

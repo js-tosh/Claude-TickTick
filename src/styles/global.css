@@ -2564,3 +2564,20 @@ input.select {
   overflow-wrap: anywhere;
   line-height: 1.25;
 }
+
+/* Focus timer waiting for the user to start the next phase */
+.timer-ring.waiting .ring-arc {
+  stroke: var(--text-faint);
+  animation: ring-wait 1.6s ease-in-out infinite;
+}
+@keyframes ring-wait {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+.ring-sub.waiting {
+  color: var(--p-med);
+  font-weight: 600;
+}
+.tab.live .tab-label:not(:empty) {
+  white-space: nowrap;
+}

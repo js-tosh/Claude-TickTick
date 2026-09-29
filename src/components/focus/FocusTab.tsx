@@ -18,6 +18,7 @@ import {
 } from '../../lib/pomodoro';
 import {
   askRating,
+  confirmFocusPhase,
   pauseFocus,
   resumeFocus,
   skipFocusPhase,
@@ -26,12 +27,21 @@ import {
   useFocusTimer,
 } from '../../state/focusTimer';
 import { useUI } from '../../state/ui';
+import { FOCUS_REPEAT_MIN } from '../../lib/notifications';
 import { CalendarIcon, MoreIcon, PauseIcon, PlayIcon, SkipIcon, StarIcon, StopIcon } from '../Icons';
 import { Menu } from '../Menu';
 import { ScheduleDialog } from './ScheduleDialog';
 import { TimerRing } from './TimerRing';
 
 const MIN = 60_000;
+
+function formatAgo(ms: number): string {
+  const m = Math.floor(ms / MIN);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  return `${h} h ${m % 60} min ago`;
+}
 
 export function FocusTab() {
   const { timer, now, lastActivity, alarmsAsNotifications } = useFocusTimer();
@@ -45,6 +55,8 @@ export function FocusTab() {
   const remaining = timer ? phaseRemaining(timer, now) : FOCUS_MIN * MIN;
   const progress = timer && phase ? 1 - remaining / phase.ms : 0;
   const paused = !!timer && timer.pausedAt !== null;
+  const waiting = !!timer && timer.awaitingConfirm;
+  const waitingFor = phase?.kind === 'break' ? 'break' : 'focus';
   const sessionLeft = timer ? sessionRemaining(timer, now) : null;
   const liveFocusMs = timer ? finishTotals(timer, now).focusMs : 0;
 
@@ -72,11 +84,25 @@ export function FocusTab() {
 
   let hint: string;
   if (!timer) hint = 'Focus runs 25-minute blocks with 5-minute breaks until you end it. Schedule session sets a total length.';
+  else if (waiting)
+    hint = isNative
+      ? `Nothing counts until you start it. The alarm repeats every ${FOCUS_REPEAT_MIN} minutes until you do.`
+      : 'Nothing counts until you start it.';
   else if (!isNative) hint = 'Keep this page open. The alarm rings here at the end of each block.';
   else if (!alarmsAsNotifications) hint = 'Notifications are off, so alarms only ring while the app is open.';
-  else hint = 'The alarm rings even if the screen turns off.';
+  else hint = `The alarm rings when this ${phase?.kind === 'break' ? 'break' : 'block'} ends, even with the screen off, and waits for you.`;
 
-  const phaseLabel = !timer ? 'Ready' : paused ? 'Paused' : phase?.kind === 'break' ? 'Break' : 'Focus';
+  const phaseLabel = !timer
+    ? 'Ready'
+    : waiting
+      ? waitingFor === 'break'
+        ? 'Break ready'
+        : 'Focus ready'
+      : paused
+        ? 'Paused'
+        : phase?.kind === 'break'
+          ? 'Break'
+          : 'Focus';
 
   return (
     <div className="page focus-page">
@@ -117,12 +143,17 @@ export function FocusTab() {
             </div>
           )}
 
-          <TimerRing progress={progress} phase={phase?.kind ?? 'focus'} paused={paused}>
+          <TimerRing progress={progress} phase={phase?.kind ?? 'focus'} paused={paused} waiting={waiting}>
             <div className="ring-phase">{phaseLabel}</div>
             <div className="ring-time" role="timer" aria-live="off">
               {formatClock(remaining)}
             </div>
-            {timer && (
+            {timer && waiting && timer.waitingSince !== null && (
+              <div className="ring-sub waiting">
+                {phase?.kind === 'break' ? 'Focus block' : 'Break'} ended {formatAgo(now - timer.waitingSince)}
+              </div>
+            )}
+            {timer && !waiting && (
               <div className="ring-sub">
                 {timer.mode === 'scheduled' && sessionLeft !== null
                   ? `${formatClock(sessionLeft)} left in session`
@@ -142,7 +173,17 @@ export function FocusTab() {
                 </button>
               </>
             )}
-            {timer && !paused && (
+            {timer && waiting && (
+              <>
+                <button type="button" className="btn primary big" onClick={confirmFocusPhase}>
+                  <PlayIcon size={18} /> {waitingFor === 'break' ? 'Start break' : 'Start focus'}
+                </button>
+                <button type="button" className="btn big danger" onClick={onStop}>
+                  <StopIcon size={18} /> End
+                </button>
+              </>
+            )}
+            {timer && !paused && !waiting && (
               <>
                 <button type="button" className="btn big" onClick={pauseFocus}>
                   <PauseIcon size={18} /> Pause
@@ -157,7 +198,7 @@ export function FocusTab() {
                 </button>
               </>
             )}
-            {timer && paused && (
+            {timer && paused && !waiting && (
               <>
                 <button type="button" className="btn primary big" onClick={resumeFocus}>
                   <PlayIcon size={18} /> Resume

@@ -30,7 +30,7 @@ export function TabBar() {
             onClick={() => setTab(id)}
           >
             <Icon size={22} />
-            <span className="tab-label">{live ? formatClock(phaseRemaining(timer, now)) : label}</span>
+            <span className="tab-label">{live ? (timer.awaitingConfirm ? 'Waiting' : formatClock(phaseRemaining(timer, now))) : label}</span>
           </button>
         );
       })}

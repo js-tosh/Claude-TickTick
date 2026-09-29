@@ -10,7 +10,7 @@ The app has four tabs along the bottom:
 |---|---|
 | **Tasks** | Folders → lists → tasks → subtasks. Inbox, Today, Next 7 Days, All, Completed, tags, search. Due date and time, priority, notes, repeat. Quick-add shortcuts such as `Pay rent tomorrow !high #home`. |
 | **Calendar** | Month, week and day views of every task with a due date. Tap a day to see it or add a task on it; tap a task to edit it. |
-| **Focus** | Name what you're working on and press **Focus**: 25 minutes of focus, an alarm, a 5-minute break, another alarm, and so on until you press End. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. |
+| **Focus** | Name what you're working on and press **Focus**: 25 minutes of focus, then an alarm. The break only starts when you tap **Start break** (in the app or on the notification); until then the alarm repeats every 5 minutes and nothing counts. Same at the end of the break. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. |
 | **Habits** | Up to 4 habits. Each has an icon, a schedule (every day, chosen weekdays, or every few days), a daily goal ("achieve it all" or an amount such as 8 glasses), a start date, goal days, a section (Morning, Afternoon, Night, Others) and reminders. The tracker shows the last 7 days; each habit opens to its streak, check-in rate, goal progress, month calendar and notes. |
 
 ## Install on an Android phone
