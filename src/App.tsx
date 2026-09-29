@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { SystemBars, SystemBarsStyle } from '@capacitor/core';
 import { db } from './db/db';
@@ -8,7 +8,17 @@ import { useAllTasks, useCounts, useFolders, useInbox, useLists, useTags } from 
 import { useToday } from './hooks/useToday';
 import { runTopBackHandler, useBackHandler } from './lib/backStack';
 import { groupLogs } from './lib/habitStats';
-import { CONFIRM_ACTION_ID, onNotificationTap, scheduleHabitReminders } from './lib/notifications';
+import {
+  CONFIRM_ACTION_ID,
+  onNotificationTap,
+  scheduleHabitReminders,
+  scheduleTaskReminders,
+  snoozeTaskReminder,
+  TASK_DONE_ACTION_ID,
+  TASK_SNOOZE_ACTION_ID,
+  SNOOZE_MINUTES as SNOOZE_MIN,
+} from './lib/notifications';
+import { setTaskDone } from './db/repo';
 import { confirmFocusPhase } from './state/focusTimer';
 import { isNative } from './lib/platform';
 import { useUI, type Theme } from './state/ui';
@@ -30,7 +40,7 @@ export default function App() {
   const tasks = useAllTasks();
   const habitCount = useLiveQuery(() => db.habits.count(), []) ?? 0;
   const sessionCount = useLiveQuery(() => db.focusSessions.count(), []) ?? 0;
-  const { tab, setTab, selectedTaskId, selectTask, dialog, toast, view, setView, theme } = useUI();
+  const { tab, setTab, selectedTaskId, selectTask, dialog, toast, showToast, view, setView, theme } = useUI();
   const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => {
@@ -55,7 +65,7 @@ export default function App() {
   // Android back: close the top layer; on another tab go back to Tasks; else leave the app.
   useBackHandler(tab !== 'tasks', () => setTab('tasks'));
   useAndroidBackButton();
-  useNotificationTaps(setTab);
+  useNotificationTaps(setTab, selectTask, showToast);
   useSystemBarStyle(theme);
 
   if (!folders || !lists || !inbox || !tasks) {
@@ -75,6 +85,7 @@ export default function App() {
       <Dialogs folders={folders} lists={lists} taskCount={tasks.length} habitCount={habitCount} sessionCount={sessionCount} />
       <FocusRatingDialog />
       <HabitReminderSync />
+      <TaskReminderSync tasks={tasks} />
       {toast && (
         <div className="toast" role="status">
           {toast}
@@ -95,6 +106,28 @@ function TasksTab({ folders, lists, inbox, tasks }: { folders: Folder[]; lists: 
       {selectedTaskId && <TaskDetail key={selectedTaskId} taskId={selectedTaskId} lists={lists} folders={folders} />}
     </div>
   );
+}
+
+/** Keeps task reminder notifications in step with the tasks (Android only). */
+function TaskReminderSync({ tasks }: { tasks: Task[] }) {
+  const today = useToday();
+  const resumes = useResumeCount();
+  // Only what can affect the schedule, so typing in a task's notes doesn't re-sync.
+  const key = useMemo(
+    () =>
+      tasks
+        .filter((t) => t.status === 'open' && !t.parentId && t.dueDate && t.reminderMinutes !== null && t.reminderMinutes !== undefined)
+        .map((t) => `${t.id}|${t.title}|${t.dueDate}|${t.dueTime}|${t.reminderMinutes}|${t.reminderTime}`)
+        .join('\n'),
+    [tasks],
+  );
+  useEffect(() => {
+    if (!isNative) return;
+    const t = setTimeout(() => void scheduleTaskReminders(tasks), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, today, resumes]);
+  return null;
 }
 
 /** Keeps the habit reminder notifications in step with habits and check-ins (Android only). */
@@ -142,16 +175,31 @@ function useAndroidBackButton() {
   }, []);
 }
 
-function useNotificationTaps(setTab: (t: 'focus' | 'habits') => void) {
+function useNotificationTaps(setTab: (t: 'tasks' | 'focus' | 'habits') => void, selectTask: (id: string | null) => void, showToast: (m: string) => void) {
   useEffect(() => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void onNotificationTap(({ kind, actionId }) => {
+    void onNotificationTap(({ kind, actionId, taskId }) => {
       if (kind === 'focus') {
         setTab('focus');
         if (actionId === CONFIRM_ACTION_ID) confirmFocusPhase();
       } else if (kind === 'habit') {
         setTab('habits');
+      } else if (kind === 'task' && taskId) {
+        void (async () => {
+          const task = await db.tasks.get(taskId);
+          if (!task) return;
+          if (actionId === TASK_DONE_ACTION_ID) {
+            await setTaskDone(taskId, true);
+            showToast(`Done: ${task.title}`);
+          } else if (actionId === TASK_SNOOZE_ACTION_ID) {
+            await snoozeTaskReminder(task);
+            showToast(`Reminder snoozed ${SNOOZE_MIN} min`);
+          } else {
+            setTab('tasks');
+            selectTask(taskId);
+          }
+        })();
       }
     }).then((f) => {
       if (cancelled) f();
@@ -161,7 +209,7 @@ function useNotificationTaps(setTab: (t: 'focus' | 'habits') => void) {
       cancelled = true;
       off?.();
     };
-  }, [setTab]);
+  }, [setTab, selectTask, showToast]);
 }
 
 /** Light or dark status-bar icons to match the app theme. */

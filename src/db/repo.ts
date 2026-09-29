@@ -2,6 +2,7 @@ import { db } from './db';
 import type { Folder, List, Priority, Repeat, Task } from './types';
 import { newId } from '../lib/ids';
 import { nextOccurrence } from '../lib/dates';
+import { clearDeliveredTaskReminders } from '../lib/notifications';
 
 const now = () => Date.now();
 
@@ -121,6 +122,8 @@ export interface NewTaskInput {
   priority?: Priority;
   tags?: string[];
   repeat?: Repeat;
+  reminderMinutes?: number | null;
+  reminderTime?: string | null;
 }
 
 export async function createTask(input: NewTaskInput): Promise<Task> {
@@ -147,6 +150,8 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     priority: input.priority ?? 0,
     tags: normalizeTags(input.tags ?? []),
     repeat: input.repeat ?? 'none',
+    reminderMinutes: input.reminderMinutes ?? null,
+    reminderTime: input.reminderTime ?? null,
     sortOrder,
     createdAt: now(),
     updatedAt: now(),
@@ -156,7 +161,10 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
 }
 
 export type TaskPatch = Partial<
-  Pick<Task, 'title' | 'notes' | 'dueDate' | 'dueTime' | 'priority' | 'tags' | 'repeat' | 'listId' | 'sortOrder' | 'parentId'>
+  Pick<
+    Task,
+    'title' | 'notes' | 'dueDate' | 'dueTime' | 'priority' | 'tags' | 'repeat' | 'listId' | 'sortOrder' | 'parentId' | 'reminderMinutes' | 'reminderTime'
+  >
 >;
 
 export async function updateTask(id: string, patch: TaskPatch) {
@@ -185,6 +193,7 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
       return;
     }
     await db.tasks.update(id, { status: 'done', completedAt: now(), updatedAt: now() });
+    void clearDeliveredTaskReminders(id);
     // Completing a parent completes its open subtasks.
     await db.tasks.where('parentId').equals(id).filter((t) => t.status === 'open').modify({
       status: 'done',
@@ -204,6 +213,8 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
           priority: task.priority,
           tags: task.tags,
           repeat: task.repeat,
+          reminderMinutes: task.reminderMinutes ?? null,
+          reminderTime: task.reminderTime ?? null,
         });
         const subs = await db.tasks.where('parentId').equals(id).toArray();
         for (const s of subs) {
@@ -217,6 +228,7 @@ export async function setTaskDone(id: string, done: boolean): Promise<void> {
 }
 
 export async function deleteTask(id: string) {
+  void clearDeliveredTaskReminders(id);
   await db.transaction('rw', db.tasks, async () => {
     await db.tasks.where('parentId').equals(id).delete();
     await db.tasks.delete(id);

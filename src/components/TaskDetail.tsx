@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useBackHandler } from '../lib/backStack';
 import { useDraft } from '../hooks/useDraft';
 import type { Folder, List, Priority, Repeat, Task } from '../db/types';
-import { PRIORITY_LABELS, REPEAT_LABELS } from '../db/types';
+import { ALL_DAY_REMINDER_TIME, PRIORITY_LABELS, REMINDER_OPTIONS, REPEAT_LABELS } from '../db/types';
+import { notificationPermission } from '../lib/notifications';
+import { isNative } from '../lib/platform';
 import { createTask, deleteTask, setTaskDone, updateTask } from '../db/repo';
 import { useSubtasks, useTask } from '../hooks/useData';
 import { addDaysKey, todayKey } from '../lib/dates';
 import { useUI } from '../state/ui';
-import { ArrowLeftIcon, CalendarIcon, CloseIcon, FlagIcon, MoveIcon, PlusIcon, RepeatIcon, TagIcon, TrashIcon } from './Icons';
+import { ArrowLeftIcon, BellIcon, CalendarIcon, CloseIcon, FlagIcon, MoveIcon, PlusIcon, RepeatIcon, TagIcon, TrashIcon } from './Icons';
 
 interface Props {
   taskId: string;
@@ -87,6 +89,7 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
 
         <div className="field-grid">
           <DueEditor task={task} />
+          <ReminderEditor task={task} />
 
           <label className="field">
             <span className="field-label">
@@ -249,7 +252,13 @@ function DueEditor({ task }: { task: Task }) {
           type="time"
           value={task.dueTime ?? ''}
           disabled={!task.dueDate}
-          onChange={(e) => updateTask(task.id, { dueTime: e.target.value || null })}
+          onChange={(e) => {
+            const dueTime = e.target.value || null;
+            // Setting a time turns the reminder on (at that time) unless one is already chosen.
+            const reminderMinutes = dueTime && task.reminderMinutes == null ? 0 : task.reminderMinutes ?? null;
+            void updateTask(task.id, { dueTime, reminderMinutes });
+            if (dueTime && task.reminderMinutes == null) void askNotificationPermission();
+          }}
           aria-label="Due time"
         />
       </div>
@@ -269,6 +278,55 @@ function DueEditor({ task }: { task: Task }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+async function askNotificationPermission() {
+  if (!isNative) return;
+  await notificationPermission(true);
+}
+
+function ReminderEditor({ task }: { task: Task }) {
+  const { showToast } = useUI();
+  const value = task.reminderMinutes ?? null;
+  const set = async (minutes: number | null) => {
+    await updateTask(task.id, { reminderMinutes: minutes });
+    if (minutes !== null && isNative && (await notificationPermission(true)) !== 'granted') {
+      showToast('Allow notifications in Android settings to get reminders.');
+    }
+  };
+  return (
+    <div className="field">
+      <span className="field-label">
+        <BellIcon size={16} /> Reminder
+      </span>
+      {task.dueTime ? (
+        <select value={value === null ? '' : value} disabled={!task.dueDate} onChange={(e) => void set(e.target.value === '' ? null : Number(e.target.value))}>
+          <option value="">None</option>
+          {REMINDER_OPTIONS.map((o) => (
+            <option key={o.minutes} value={o.minutes}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="due-inputs">
+          <select value={value === null ? '' : 'day'} disabled={!task.dueDate} onChange={(e) => void set(e.target.value === '' ? null : 0)}>
+            <option value="">None</option>
+            <option value="day">On the day at</option>
+          </select>
+          <input
+            type="time"
+            value={task.reminderTime ?? ALL_DAY_REMINDER_TIME}
+            disabled={!task.dueDate || value === null}
+            onChange={(e) => e.target.value && void updateTask(task.id, { reminderTime: e.target.value })}
+            aria-label="Reminder time"
+          />
+        </div>
+      )}
+      {!task.dueDate && <span className="muted small">Set a due date first.</span>}
+      {task.dueDate && value !== null && !isNative && <span className="muted small">Reminders ring in the Android app.</span>}
     </div>
   );
 }

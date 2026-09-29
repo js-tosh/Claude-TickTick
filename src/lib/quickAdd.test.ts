@@ -6,7 +6,7 @@ const NOW = new Date(2026, 8, 16, 10, 0, 0);
 
 describe('parseQuickAdd', () => {
   it('keeps plain text as the title', () => {
-    expect(parseQuickAdd('Buy milk', NOW)).toEqual({ title: 'Buy milk', priority: null, tags: [], dueDate: null, listRef: null });
+    expect(parseQuickAdd('Buy milk', NOW)).toEqual({ title: 'Buy milk', priority: null, tags: [], dueDate: null, dueTime: null, listRef: null });
   });
 
   it('extracts priority, tags and relative dates', () => {
@@ -56,5 +56,13 @@ describe('parseQuickAdd', () => {
     expect(resolveListRef('personal-projects', lists, folders)).toBe('pp');
     expect(resolveListRef('Work-tasks', lists, folders)).toBe('w2');
     expect(resolveListRef('nothing', lists, folders)).toBeNull();
+  });
+
+  it('understands times', () => {
+    expect(parseQuickAdd('Lunch with Ana today at 12:10', NOW)).toMatchObject({ title: 'Lunch with Ana', dueTime: '12:10' });
+    expect(parseQuickAdd('Standup 9:30am tomorrow', NOW)).toMatchObject({ title: 'Standup', dueTime: '09:30' });
+    expect(parseQuickAdd('Gym 6pm', NOW)).toMatchObject({ title: 'Gym', dueTime: '18:00' });
+    expect(parseQuickAdd('Order 12 pizzas', NOW)).toMatchObject({ title: 'Order 12 pizzas', dueTime: null });
+    expect(parseQuickAdd('Meet at the park', NOW).title).toBe('Meet at the park');
   });
 });

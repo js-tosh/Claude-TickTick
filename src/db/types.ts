@@ -44,10 +44,30 @@ export interface Task {
   priority: Priority;
   tags: string[];
   repeat: Repeat;
+  /**
+   * Reminder: minutes before the due time (0 = at the due time), or null for
+   * no reminder. For an all-day task the "due time" is reminderTime (default
+   * 09:00). Notifications only exist in the Android app.
+   */
+  reminderMinutes?: number | null;
+  /** 'HH:mm' used for all-day tasks (tasks without a due time). */
+  reminderTime?: string | null;
   sortOrder: number;
   createdAt: number;
   updatedAt: number;
 }
+
+export const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 0, label: 'At the due time' },
+  { minutes: 5, label: '5 minutes before' },
+  { minutes: 10, label: '10 minutes before' },
+  { minutes: 15, label: '15 minutes before' },
+  { minutes: 30, label: '30 minutes before' },
+  { minutes: 60, label: '1 hour before' },
+  { minutes: 120, label: '2 hours before' },
+  { minutes: 1440, label: '1 day before' },
+];
+export const ALL_DAY_REMINDER_TIME = '09:00';
 
 // ---------------------------------------------------------------------------
 // Habits

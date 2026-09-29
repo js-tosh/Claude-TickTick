@@ -8,7 +8,7 @@ The app has four tabs along the bottom:
 
 | Tab | What it does |
 |---|---|
-| **Tasks** | Folders → lists → tasks → subtasks. Inbox, Today, Next 7 Days, All, Completed, tags, search. Due date and time, priority, notes, repeat. Quick-add shortcuts such as `Pay rent tomorrow !high #home @Work` (`@` sends the task to a list or folder by name). On phones the floating + button opens the quick-add bar. |
+| **Tasks** | Folders → lists → tasks → subtasks. Inbox, Today, Next 7 Days, All, Completed, tags, search. Due date and time, priority, notes, repeat. Quick-add shortcuts such as `Pay rent tomorrow 3pm !high #home @Work` (`@` sends the task to a list or folder by name; a time also sets a reminder). Reminders: a notification at the due time or up to a day before, with Mark done and Snooze buttons; all-day tasks can remind at a chosen time. On phones the floating + button opens the quick-add bar. |
 | **Matrix** | Eisenhower matrix: four quadrants for high, medium, low and no priority. Tap a task to edit it, tick it off in place, or use the quadrant's + to add one with that priority. |
 | **Calendar** | Month, week and day views of every task with a due date. Tap a day to see it or add a task on it; tap a task to edit it. |
 | **Focus** | Name what you're working on and press **Focus**: a focus block (15, 20, 25 or 30 minutes, set with the gear icon), then an alarm. The break only starts when you tap **Start break** (in the app or on the notification); until then the alarm repeats every 5 minutes and nothing counts. Same at the end of the break. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. The gear icon also lets you pick the alarm sound from the phone's ringtones. |
@@ -102,5 +102,4 @@ android/       Capacitor Android project
 ## Not in this version
 
 - Sync between devices (by design; use backup and import)
-- Reminders for individual tasks (habits have reminders; tasks show due times)
 - Drag-and-drop reordering

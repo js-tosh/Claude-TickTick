@@ -3,6 +3,9 @@ import { createTask } from '../db/repo';
 import type { Priority } from '../db/types';
 import { useFolders, useLists } from '../hooks/useData';
 import { parseQuickAdd, resolveListRef } from '../lib/quickAdd';
+import { todayKey } from '../lib/dates';
+import { notificationPermission } from '../lib/notifications';
+import { isNative } from '../lib/platform';
 import { useUI } from '../state/ui';
 import { PlusIcon } from './Icons';
 
@@ -39,13 +42,18 @@ export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = '
     if (!title) return;
     setBusy(true);
     try {
+      const dueDate = parsed.dueDate ?? defaults?.dueDate ?? (parsed.dueTime ? todayKey() : null);
       await createTask({
         listId: target,
         title,
-        dueDate: parsed.dueDate ?? defaults?.dueDate ?? null,
+        dueDate,
+        dueTime: dueDate ? parsed.dueTime : null,
+        // A time means "remind me then".
+        reminderMinutes: dueDate && parsed.dueTime ? 0 : null,
         priority: parsed.priority ?? defaults?.priority ?? 0,
         tags: [...(defaults?.tags ?? []), ...parsed.tags],
       });
+      if (dueDate && parsed.dueTime && isNative) void notificationPermission(true);
       if (target !== listId) {
         const name = lists?.find((l) => l.id === target)?.name ?? parsed.listRef;
         showToast(`Added to ${name}`);
@@ -72,7 +80,7 @@ export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = '
         type="text"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder ?? 'Add a task…  try “Pay rent tomorrow !high #home @Work”'}
+        placeholder={placeholder ?? 'Add a task…  try “Pay rent tomorrow 3pm !high #home @Work”'}
         aria-label="Add a task"
         autoFocus={autoFocus}
         enterKeyHint="done"

@@ -211,6 +211,8 @@ export function parseBackup(text: string): BackupFile {
       repeat: ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly'].includes(t.repeat as string)
         ? (t.repeat as Task['repeat'])
         : 'none',
+      reminderMinutes: typeof t.reminderMinutes === 'number' && t.reminderMinutes >= 0 ? Math.floor(t.reminderMinutes) : null,
+      reminderTime: typeof t.reminderTime === 'string' && /^\d{2}:\d{2}$/.test(t.reminderTime) ? t.reminderTime : null,
       sortOrder: num(t.sortOrder, 0),
       createdAt: num(t.createdAt, ts),
       updatedAt: num(t.updatedAt, ts),

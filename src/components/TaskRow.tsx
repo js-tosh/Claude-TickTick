@@ -1,7 +1,7 @@
 import type { List, Task } from '../db/types';
 import { formatDueLabel, formatTime, relativeBucket } from '../lib/dates';
 import { setTaskDone } from '../db/repo';
-import { ChevronIcon, RepeatIcon } from './Icons';
+import { BellIcon, ChevronIcon, RepeatIcon } from './Icons';
 
 interface Props {
   task: Task;
@@ -68,6 +68,7 @@ export function TaskRow({ task, subtasks = [], list, showList, selected, expande
             <span className={`meta-chip due ${bucket ?? ''}`}>
               {formatDueLabel(task.dueDate, task.dueTime)}
               {task.repeat !== 'none' && <RepeatIcon size={12} />}
+              {task.reminderMinutes != null && task.status === 'open' && <BellIcon size={12} />}
             </span>
           )}
           {task.dueDate && dueStyle === 'time' && (task.dueTime || task.repeat !== 'none') && (

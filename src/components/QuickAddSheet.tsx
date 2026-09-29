@@ -37,7 +37,7 @@ export function QuickAddSheet({ listId, defaults, placeholder, note, onClose }: 
         <div className="sheet-handle" aria-hidden="true" />
         {note && <div className="sheet-note muted small">{note}</div>}
         <QuickAdd listId={listId} defaults={defaults} placeholder={placeholder} autoFocus variant="sheet" />
-        <div className="sheet-hint muted small">Enter adds the task. Try “!high”, “#tag”, “@list”, “tomorrow”.</div>
+        <div className="sheet-hint muted small">Enter adds the task. Try “!high”, “#tag”, “@list”, “tomorrow”, “3pm”.</div>
       </div>
     </div>
   );

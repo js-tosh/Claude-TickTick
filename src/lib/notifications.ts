@@ -5,7 +5,9 @@
  * In a browser every function here is a no-op.
  */
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
-import type { Habit } from '../db/types';
+import type { Habit, Task } from '../db/types';
+import { planTaskReminders, TASK_HORIZON_DAYS } from './taskReminders';
+import { formatDueLabel } from './dates';
 import { FocusAlarm } from './focusAlarmPlugin';
 import { BREAK_MIN } from './pomodoro';
 import type { LogMap } from './habitStats';
@@ -21,7 +23,15 @@ const FOCUS_CHANNEL_PREFIX = 'focus-alarm-';
 const LEGACY_FOCUS_CHANNELS = ['focus-alarm', 'focus-alarm-v2'];
 const PREV_CHANNEL_KEY = 'tt.focusChannel';
 const HABIT_CHANNEL = 'habit-reminders';
+const TASK_CHANNEL = 'task-reminders';
 const FOCUS_IDS: [number, number] = [1000, 1999];
+const TASK_IDS: [number, number] = [10000, 19999];
+/** One-off snoozed task reminders live in their own range so a re-sync doesn't drop them. */
+const SNOOZE_IDS: [number, number] = [20000, 20999];
+const ACTION_TASK = 'TASK_REMINDER';
+export const TASK_DONE_ACTION_ID = 'done';
+export const TASK_SNOOZE_ACTION_ID = 'snooze';
+export const SNOOZE_MINUTES = 10;
 /** Focus alarms repeat this often until the user confirms the next phase. */
 export const FOCUS_REPEAT_MIN = 5;
 /** How many repeats are scheduled ahead (an hour's worth). */
@@ -82,8 +92,23 @@ export async function openFocusAlarmSettings(): Promise<void> {
 let channelsReady: Promise<void> | null = null;
 function ensureChannels(): Promise<void> {
   channelsReady ??= (async () => {
+    await LocalNotifications.createChannel({
+      id: TASK_CHANNEL,
+      name: 'Task reminders',
+      description: 'Reminders for tasks with a due time',
+      importance: 4,
+      visibility: 1,
+      vibration: true,
+    });
     await LocalNotifications.registerActionTypes({
       types: [
+        {
+          id: ACTION_TASK,
+          actions: [
+            { id: TASK_DONE_ACTION_ID, title: 'Mark done', foreground: true },
+            { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min`, foreground: true },
+          ],
+        },
         { id: ACTION_TO_BREAK, actions: [{ id: CONFIRM_ACTION_ID, title: 'Start break', foreground: true }] },
         { id: ACTION_TO_FOCUS, actions: [{ id: CONFIRM_ACTION_ID, title: 'Start focus', foreground: true }] },
         { id: ACTION_DONE, actions: [{ id: CONFIRM_ACTION_ID, title: 'Rate session', foreground: true }] },
@@ -281,16 +306,83 @@ export function clearDeliveredHabitReminders(habit: Pick<Habit, 'icon' | 'name'>
   });
 }
 
+// ---------------------------------------------------------------------------
+// Task reminders
+// ---------------------------------------------------------------------------
+
+function taskNotification(task: Task, id: number, at: Date, snoozed: boolean): LocalNotificationSchema {
+  const when = task.dueDate ? formatDueLabel(task.dueDate, task.dueTime) : '';
+  return {
+    id,
+    title: task.title,
+    body: snoozed ? `Snoozed reminder · due ${when}` : task.dueTime ? `Due ${when}` : `Due today`,
+    actionTypeId: ACTION_TASK,
+    channelId: TASK_CHANNEL,
+    schedule: { at, allowWhileIdle: true },
+    autoCancel: true,
+    smallIcon: SMALL_ICON,
+    iconColor: ICON_COLOR,
+    extra: { kind: 'task', taskId: task.id },
+  };
+}
+
+/**
+ * Schedule reminders for the next week of tasks. Called whenever tasks change
+ * and when the app opens; replaces the previous set. Snoozed ones are left alone.
+ */
+export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
+  if (!isNative) return Promise.resolve();
+  return serial(async () => {
+    await ensureChannels();
+    await cancelPendingInRange(TASK_IDS);
+    const plan = planTaskReminders(tasks, new Date(), TASK_HORIZON_DAYS);
+    if (!plan.length || (await notificationPermission(false)) !== 'granted') return;
+    const exact = await exactAllowed();
+    const notifications = plan.slice(0, TASK_IDS[1] - TASK_IDS[0]).map((p, i) => ({
+      ...taskNotification(p.task, TASK_IDS[0] + i, p.at, false),
+      isExactNotification: exact,
+    }));
+    await LocalNotifications.schedule({ notifications });
+  });
+}
+
+/** Ring again for one task in SNOOZE_MINUTES. */
+export function snoozeTaskReminder(task: Task): Promise<unknown> {
+  if (!isNative) return Promise.resolve();
+  return serial(async () => {
+    await ensureChannels();
+    const exact = await exactAllowed();
+    const id = SNOOZE_IDS[0] + (Math.floor(Date.now() / 1000) % (SNOOZE_IDS[1] - SNOOZE_IDS[0]));
+    const at = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
+    await LocalNotifications.schedule({ notifications: [{ ...taskNotification(task, id, at, true), isExactNotification: exact }] });
+  });
+}
+
+/** Drop any tray notification for a task that was just completed or deleted. */
+export function clearDeliveredTaskReminders(taskId: string): Promise<unknown> {
+  if (!isNative) return Promise.resolve();
+  return serial(async () => {
+    const { notifications } = await LocalNotifications.getDeliveredNotifications();
+    const mine = notifications.filter((n) => n.extra?.taskId === taskId || n.data?.taskId === taskId);
+    if (mine.length) await LocalNotifications.removeDeliveredNotifications({ notifications: mine });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Taps
+// ---------------------------------------------------------------------------
+
 export interface NotificationTap {
-  kind: 'focus' | 'habit' | undefined;
-  /** 'tap' for the notification body, or a button's id (CONFIRM_ACTION_ID). */
+  kind: 'focus' | 'habit' | 'task' | undefined;
+  /** 'tap' for the notification body, or a button's id. */
   actionId: string;
+  taskId?: string;
 }
 
 export async function onNotificationTap(handler: (tap: NotificationTap) => void): Promise<() => void> {
   if (!isNative) return () => undefined;
   const sub = await LocalNotifications.addListener('localNotificationActionPerformed', (e) => {
-    handler({ kind: e.notification.extra?.kind, actionId: e.actionId });
+    handler({ kind: e.notification.extra?.kind, actionId: e.actionId, taskId: e.notification.extra?.taskId });
   });
   return () => void sub.remove();
 }

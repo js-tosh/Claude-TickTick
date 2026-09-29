@@ -7,8 +7,31 @@ export interface ParsedQuickAdd {
   priority: Priority | null;
   tags: string[];
   dueDate: string | null;
+  /** "12:10", "3pm", "at 9:30am" → 'HH:mm' */
+  dueTime: string | null;
   /** "@Work" → "Work": the list (or folder) the task should go to. */
   listRef: string | null;
+}
+
+const TIME_RE = /^(\d{1,2})(?::(\d{2}))?(am|pm)?$/i;
+
+/** "3pm" → "15:00", "9:30am" → "09:30", "12:10" → "12:10"; null if not a time. */
+export function parseTimeToken(tok: string): string | null {
+  const m = TIME_RE.exec(tok);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  const ampm = m[3]?.toLowerCase();
+  if (!ampm && !m[2]) return null; // a bare number is not a time
+  if (min > 59) return null;
+  if (ampm) {
+    if (h < 1 || h > 12) return null;
+    if (ampm === 'pm' && h < 12) h += 12;
+    if (ampm === 'am' && h === 12) h = 0;
+  } else if (h > 23) {
+    return null;
+  }
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 const WEEKDAYS: Record<string, Day> = {
@@ -41,6 +64,7 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
   let priority: Priority | null = null;
   const tags: string[] = [];
   let dueDate: string | null = null;
+  let dueTime: string | null = null;
   let listRef: string | null = null;
   const today = startOfDay(now);
 
@@ -67,6 +91,17 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
     if (tok.startsWith('@') && tok.length > 1 && listRef === null) {
       listRef = tok.slice(1);
       continue;
+    }
+
+    // Times: "12:10", "3pm", "at 9:30am" (the word "at" before a time is dropped).
+    if (dueTime === null) {
+      const isAt = lower === 'at' && i + 1 < tokens.length;
+      const t = parseTimeToken(isAt ? tokens[i + 1] : tok);
+      if (t) {
+        dueTime = t;
+        if (isAt) i++;
+        continue;
+      }
     }
 
     // Dates (only the first one found is used).
@@ -105,7 +140,7 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
     kept.push(tok);
   }
 
-  return { title: kept.join(' ').trim(), priority, tags, dueDate, listRef };
+  return { title: kept.join(' ').trim(), priority, tags, dueDate, dueTime, listRef };
 }
 
 /** Compare names loosely: "personal-projects" matches "Personal Projects". */
