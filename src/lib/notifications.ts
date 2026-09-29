@@ -6,10 +6,9 @@
  */
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
 import type { Habit } from '../db/types';
-import { isDoneValue, isScheduled, type LogMap } from './habitStats';
-import { shiftKey } from './daynum';
-import { toDateTime, todayKey } from './dates';
+import type { LogMap } from './habitStats';
 import { isNative } from './platform';
+import { HABIT_HORIZON_DAYS, planHabitReminders } from './reminderPlan';
 
 const FOCUS_CHANNEL = 'focus-alarm';
 const HABIT_CHANNEL = 'habit-reminders';
@@ -17,10 +16,6 @@ const FOCUS_IDS: [number, number] = [1000, 1999];
 const HABIT_IDS: [number, number] = [2000, 9999];
 const SMALL_ICON = 'ic_stat_tasks';
 const ICON_COLOR = '#4772fa';
-/** Habit reminders are scheduled this many days ahead and refreshed whenever the app opens. */
-const HABIT_HORIZON_DAYS = 7;
-/** A constant reminder re-alerts this many minutes later while not checked in. */
-const CONSTANT_REPEATS_MIN = [10, 20];
 
 export type NotificationPermission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
@@ -134,40 +129,12 @@ export function cancelFocusAlarms(): Promise<unknown> {
 
 export const habitNotificationTitle = (h: Pick<Habit, 'icon' | 'name'>) => `${h.icon} ${h.name}`;
 
-/** Build the reminder list for the next few days (pure; exported for tests). */
-export function planHabitReminders(
-  habits: Habit[],
-  logsByHabit: Map<string, LogMap>,
-  now: Date,
-  horizonDays = HABIT_HORIZON_DAYS,
-): { habit: Habit; date: string; at: Date; followUp: boolean }[] {
-  const out: { habit: Habit; date: string; at: Date; followUp: boolean }[] = [];
-  const today = todayKey(now);
-  for (let d = 0; d < horizonDays; d++) {
-    const date = shiftKey(today, d);
-    for (const habit of habits) {
-      if (!habit.reminders.length || !isScheduled(habit, date)) continue;
-      const log = logsByHabit.get(habit.id)?.get(date);
-      if (log && isDoneValue(habit, log.value)) continue;
-      for (const time of habit.reminders) {
-        const base = toDateTime(date, time).getTime();
-        const offsets = [0, ...(habit.constantReminder ? CONSTANT_REPEATS_MIN : [])];
-        for (const off of offsets) {
-          const at = new Date(base + off * 60_000);
-          if (at.getTime() > now.getTime() + 1000) out.push({ habit, date, at, followUp: off > 0 });
-        }
-      }
-    }
-  }
-  return out.sort((a, b) => a.at.getTime() - b.at.getTime());
-}
-
 export function scheduleHabitReminders(habits: Habit[], logsByHabit: Map<string, LogMap>): Promise<unknown> {
   if (!isNative) return Promise.resolve();
   return serial(async () => {
     await ensureChannels();
     await cancelPendingInRange(HABIT_IDS);
-    const plan = planHabitReminders(habits, logsByHabit, new Date());
+    const plan = planHabitReminders(habits, logsByHabit, new Date(), HABIT_HORIZON_DAYS);
     if (!plan.length || (await notificationPermission(false)) !== 'granted') return;
     const exact = await exactAllowed();
     const notifications: LocalNotificationSchema[] = plan.slice(0, HABIT_IDS[1] - HABIT_IDS[0]).map((p, i) => ({
