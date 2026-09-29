@@ -6,14 +6,20 @@
  */
 import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/local-notifications';
 import type { Habit } from '../db/types';
+import { FocusAlarm } from './focusAlarmPlugin';
+import { BREAK_MIN } from './pomodoro';
 import type { LogMap } from './habitStats';
 import { isNative } from './platform';
 import { HABIT_HORIZON_DAYS, planHabitReminders } from './reminderPlan';
+import { getSettings, type AlarmSound } from '../state/settings';
 
-// v2: the channel carries a real ringtone (res/raw/focus_alarm.wav). A channel's
-// sound can't be changed after creation, so the old silent-by-default one is deleted.
-const FOCUS_CHANNEL = 'focus-alarm-v2';
-const OLD_FOCUS_CHANNEL = 'focus-alarm';
+// The focus alarm channel is created by the app's own FocusAlarm plugin so it can
+// carry either the bundled chime or a ringtone the user picked. A channel's sound
+// can't change after creation, so each sound gets its own channel id and the
+// previous one is deleted.
+const FOCUS_CHANNEL_PREFIX = 'focus-alarm-';
+const LEGACY_FOCUS_CHANNELS = ['focus-alarm', 'focus-alarm-v2'];
+const PREV_CHANNEL_KEY = 'tt.focusChannel';
 const HABIT_CHANNEL = 'habit-reminders';
 const FOCUS_IDS: [number, number] = [1000, 1999];
 /** Focus alarms repeat this often until the user confirms the next phase. */
@@ -31,19 +37,51 @@ const ICON_COLOR = '#4772fa';
 
 export type NotificationPermission = 'granted' | 'denied' | 'prompt' | 'unsupported';
 
+/** Channel id for the current alarm sound choice. */
+export function focusChannelId(sound: AlarmSound | null = getSettings().alarmSound): string {
+  if (!sound) return `${FOCUS_CHANNEL_PREFIX}chime`;
+  let h = 0;
+  for (const ch of sound.uri) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return `${FOCUS_CHANNEL_PREFIX}${h.toString(36)}`;
+}
+
+/** Create the channel for the chosen sound and drop the one used before. */
+export async function ensureFocusChannel(): Promise<string> {
+  const sound = getSettings().alarmSound;
+  const id = focusChannelId(sound);
+  if (!isNative) return id;
+  let prev: string | null = null;
+  try {
+    prev = localStorage.getItem(PREV_CHANNEL_KEY);
+  } catch {
+    /* ignore */
+  }
+  for (const old of [...LEGACY_FOCUS_CHANNELS, prev]) {
+    if (old && old !== id) await FocusAlarm.deleteChannel({ id: old }).catch(() => undefined);
+  }
+  await FocusAlarm.ensureChannel({
+    id,
+    name: sound ? `Focus timer alarm (${sound.title})` : 'Focus timer alarm',
+    description: 'Rings when a focus block or a break ends, and repeats until you confirm',
+    soundUri: sound?.uri ?? null,
+  });
+  try {
+    localStorage.setItem(PREV_CHANNEL_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  return id;
+}
+
+/** Open the alarm channel's page in Android settings (any sound, vibration, importance). */
+export async function openFocusAlarmSettings(): Promise<void> {
+  const id = await ensureFocusChannel();
+  await FocusAlarm.openChannelSettings({ id });
+}
+
 let channelsReady: Promise<void> | null = null;
 function ensureChannels(): Promise<void> {
   channelsReady ??= (async () => {
-    await LocalNotifications.deleteChannel({ id: OLD_FOCUS_CHANNEL }).catch(() => undefined);
-    await LocalNotifications.createChannel({
-      id: FOCUS_CHANNEL,
-      name: 'Focus timer alarm',
-      description: 'Rings when a focus block or a break ends, and repeats until you confirm',
-      importance: 5,
-      visibility: 1,
-      vibration: true,
-      sound: 'focus_alarm.wav',
-    });
     await LocalNotifications.registerActionTypes({
       types: [
         { id: ACTION_TO_BREAK, actions: [{ id: CONFIRM_ACTION_ID, title: 'Start break', foreground: true }] },
@@ -143,7 +181,7 @@ function focusTexts(alarm: FocusAlarm, activity: string, repeat: number): { titl
       title: repeat ? 'Your break is waiting' : 'Focus block done',
       body: repeat
         ? `${activity} ended ${repeat * FOCUS_REPEAT_MIN} min ago. Tap Start break when you're ready.`
-        : `Nice work on ${activity}. Tap Start break to begin your 5-minute break.`,
+        : `Nice work on ${activity}. Tap Start break to begin your ${BREAK_MIN}-minute break.`,
       actionTypeId: ACTION_TO_BREAK,
     };
   }
@@ -165,6 +203,7 @@ export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): 
   if (!isNative) return Promise.resolve();
   return serial(async () => {
     await ensureChannels();
+    const channelId = await ensureFocusChannel();
     await cancelPendingInRange(FOCUS_IDS);
     await clearDeliveredInRange(FOCUS_IDS);
     if (!alarm || alarm.at <= Date.now() || (await notificationPermission(false)) !== 'granted') return;
@@ -177,7 +216,7 @@ export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): 
         title: t.title,
         body: t.body,
         actionTypeId: t.actionTypeId,
-        channelId: FOCUS_CHANNEL,
+        channelId,
         schedule: { at: new Date(alarm.at + i * FOCUS_REPEAT_MIN * 60_000), allowWhileIdle: true },
         isExactNotification: exact,
         autoCancel: true,

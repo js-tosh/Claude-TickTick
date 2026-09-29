@@ -8,6 +8,9 @@ import type { FocusMode } from '../db/types';
 
 export const FOCUS_MIN = 25;
 export const BREAK_MIN = 5;
+/** Focus block lengths the user can pick from. */
+export const FOCUS_MIN_OPTIONS = [15, 20, 25, 30] as const;
+export type FocusMinutes = (typeof FOCUS_MIN_OPTIONS)[number];
 /** Scheduled sessions are picked in steps of this many minutes. */
 export const SCHEDULE_STEP_MIN = 45;
 export const SCHEDULE_MAX_STEPS = 12;
@@ -25,6 +28,10 @@ export interface TimerState {
   id: string;
   activity: string;
   mode: FocusMode;
+  /** Length of each focus block in minutes (breaks are always BREAK_MIN). */
+  focusMin: number;
+  /** Habit to check in when the session ends, if it was started from one. */
+  habitId: string | null;
   /** Scheduled mode: the whole plan. Endless mode: null (focus/break alternate forever). */
   plan: PlannedPhase[] | null;
   plannedMinutes: number | null;
@@ -74,21 +81,24 @@ export function buildScheduledPlan(totalMin: number, focusMin = FOCUS_MIN, break
   return plan;
 }
 
-export function phaseAt(s: Pick<TimerState, 'mode' | 'plan'>, index: number): PlannedPhase | null {
+export function phaseAt(s: Pick<TimerState, 'mode' | 'plan' | 'focusMin'>, index: number): PlannedPhase | null {
   if (s.mode === 'scheduled') return s.plan?.[index] ?? null;
-  return index % 2 === 0 ? { kind: 'focus', ms: FOCUS_MIN * MIN } : { kind: 'break', ms: BREAK_MIN * MIN };
+  return index % 2 === 0 ? { kind: 'focus', ms: (s.focusMin || FOCUS_MIN) * MIN } : { kind: 'break', ms: BREAK_MIN * MIN };
 }
 
 export function startTimer(
-  opts: { id: string; activity: string; mode: FocusMode; plannedMinutes?: number | null },
+  opts: { id: string; activity: string; mode: FocusMode; plannedMinutes?: number | null; focusMin?: number; habitId?: string | null },
   now: number,
 ): TimerState {
   const plannedMinutes = opts.mode === 'scheduled' ? Math.max(1, opts.plannedMinutes ?? SCHEDULE_STEP_MIN) : null;
+  const focusMin = Math.max(1, Math.round(opts.focusMin ?? FOCUS_MIN));
   return {
     id: opts.id,
     activity: opts.activity.trim() || 'Focus',
     mode: opts.mode,
-    plan: plannedMinutes ? buildScheduledPlan(plannedMinutes) : null,
+    focusMin,
+    habitId: opts.habitId ?? null,
+    plan: plannedMinutes ? buildScheduledPlan(plannedMinutes, focusMin) : null,
     plannedMinutes,
     startedAt: now,
     phaseIndex: 0,

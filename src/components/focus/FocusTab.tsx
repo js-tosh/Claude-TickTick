@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { format } from 'date-fns';
 import { db } from '../../db/db';
 import { deleteFocusSession } from '../../db/focus';
+import { useSettings } from '../../state/settings';
+import { FocusSettingsDialog } from './FocusSettingsDialog';
 import { useToday } from '../../hooks/useToday';
 import { computeFocusStats, recentActivities } from '../../lib/focusStats';
 import { isNative } from '../../lib/platform';
 import {
-  FOCUS_MIN,
+  BREAK_MIN,
   finishTotals,
   formatClock,
   formatDuration,
@@ -18,6 +20,7 @@ import {
 } from '../../lib/pomodoro';
 import {
   askRating,
+  clearLastCheckedIn,
   confirmFocusPhase,
   pauseFocus,
   resumeFocus,
@@ -28,7 +31,7 @@ import {
 } from '../../state/focusTimer';
 import { useUI } from '../../state/ui';
 import { FOCUS_REPEAT_MIN } from '../../lib/notifications';
-import { CalendarIcon, MoreIcon, PauseIcon, PlayIcon, SkipIcon, StarIcon, StopIcon } from '../Icons';
+import { CalendarIcon, MoreIcon, PauseIcon, PlayIcon, SettingsIcon, SkipIcon, StarIcon, StopIcon } from '../Icons';
 import { Menu } from '../Menu';
 import { ScheduleDialog } from './ScheduleDialog';
 import { TimerRing } from './TimerRing';
@@ -44,15 +47,27 @@ function formatAgo(ms: number): string {
 }
 
 export function FocusTab() {
-  const { timer, now, lastActivity, alarmsAsNotifications } = useFocusTimer();
+  const { timer, now, lastActivity, alarmsAsNotifications, lastCheckedIn } = useFocusTimer();
+  const { focusMin } = useSettings();
   const sessions = useLiveQuery(() => db.focusSessions.orderBy('startedAt').reverse().toArray(), []);
+  const habits = useLiveQuery(() => db.habits.orderBy('sortOrder').toArray(), []) ?? [];
+  const linkedHabit = useLiveQuery(() => (timer?.habitId ? db.habits.get(timer.habitId) : undefined), [timer?.habitId]);
   const [activity, setActivity] = useState(lastActivity);
+  const [habitId, setHabitId] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { showToast, openDialog } = useUI();
   const today = useToday();
 
+  // A session that ended (by End or on its own) may have checked a habit in.
+  useEffect(() => {
+    if (!lastCheckedIn) return;
+    showToast(`${lastCheckedIn.icon} ${lastCheckedIn.name} checked in for today`);
+    clearLastCheckedIn();
+  }, [lastCheckedIn, showToast]);
+
   const phase = timer ? phaseAt(timer, timer.phaseIndex) : null;
-  const remaining = timer ? phaseRemaining(timer, now) : FOCUS_MIN * MIN;
+  const remaining = timer ? phaseRemaining(timer, now) : focusMin * MIN;
   const progress = timer && phase ? 1 - remaining / phase.ms : 0;
   const paused = !!timer && timer.pausedAt !== null;
   const waiting = !!timer && timer.awaitingConfirm;
@@ -82,8 +97,22 @@ export function FocusTab() {
       onConfirm: () => deleteFocusSession(id),
     });
 
+  const pickHabit = (h: { id: string; name: string }) => {
+    if (habitId === h.id) {
+      setHabitId(null);
+      return;
+    }
+    setHabitId(h.id);
+    setActivity(h.name);
+  };
+  const onActivityChange = (v: string) => {
+    setActivity(v);
+    const linked = habits.find((h) => h.id === habitId);
+    if (linked && v.trim() !== linked.name) setHabitId(null);
+  };
+
   let hint: string;
-  if (!timer) hint = 'Focus runs 25-minute blocks with 5-minute breaks until you end it. Schedule session sets a total length.';
+  if (!timer) hint = `Focus runs ${focusMin}-minute blocks with 5-minute breaks until you end it. Schedule session sets a total length.`;
   else if (waiting)
     hint = isNative
       ? `Nothing counts until you start it. The alarm repeats every ${FOCUS_REPEAT_MIN} minutes until you do.`
@@ -108,13 +137,21 @@ export function FocusTab() {
     <div className="page focus-page">
       <header className="page-header">
         <h1>Focus</h1>
+        <button type="button" className="icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Focus settings">
+          <SettingsIcon />
+        </button>
       </header>
       <div className="page-scroll">
         <section className="focus-hero" aria-label="Timer">
           {timer ? (
             <div className="focus-activity-label">
-              <span className="muted small">{timer.mode === 'scheduled' ? `Scheduled · ${formatMinutes(timer.plannedMinutes ?? 0)}` : 'Focusing on'}</span>
+              <span className="muted small">{timer.mode === 'scheduled' ? `Scheduled · ${formatMinutes(timer.plannedMinutes ?? 0)}` : `Focusing on · ${timer.focusMin}/${BREAK_MIN}`}</span>
               <strong>{timer.activity}</strong>
+              {linkedHabit && (
+                <span className="habit-link-badge">
+                  {linkedHabit.icon} {linkedHabit.name} is checked in when you end
+                </span>
+              )}
             </div>
           ) : (
             <div className="activity-field">
@@ -125,21 +162,40 @@ export function FocusTab() {
                 id="focus-activity"
                 type="text"
                 value={activity}
-                onChange={(e) => setActivity(e.target.value)}
+                onChange={(e) => onActivityChange(e.target.value)}
                 placeholder="e.g. Math homework"
                 maxLength={80}
                 enterKeyHint="go"
                 autoComplete="off"
               />
-              {recent.length > 0 && (
-                <div className="chip-row">
-                  {recent.map((a) => (
-                    <button key={a} type="button" className={`chip${a === activity ? ' on' : ''}`} onClick={() => setActivity(a)}>
-                      {a}
+              {habits.length > 0 && (
+                <div className="chip-row" aria-label="Habits">
+                  {habits.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className={`chip habit-chip${habitId === h.id ? ' on' : ''}`}
+                      aria-pressed={habitId === h.id}
+                      onClick={() => pickHabit(h)}
+                      title="Checks this habit in when the session ends"
+                    >
+                      {h.icon} {h.name}
                     </button>
                   ))}
                 </div>
               )}
+              {recent.filter((a) => !habits.some((h) => h.name === a)).length > 0 && (
+                <div className="chip-row">
+                  {recent
+                    .filter((a) => !habits.some((h) => h.name === a))
+                    .map((a) => (
+                      <button key={a} type="button" className={`chip${a === activity && !habitId ? ' on' : ''}`} onClick={() => onActivityChange(a)}>
+                        {a}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {habitId && <p className="muted small habit-link-note">This session checks the habit in for today when you end it.</p>}
             </div>
           )}
 
@@ -165,8 +221,8 @@ export function FocusTab() {
           <div className="focus-controls">
             {!timer && (
               <>
-                <button type="button" className="btn primary big" onClick={() => startFocus({ activity, mode: 'endless' })}>
-                  <PlayIcon size={18} /> Focus
+                <button type="button" className="btn primary big" onClick={() => startFocus({ activity, mode: 'endless', habitId })}>
+                  <PlayIcon size={18} /> Focus {focusMin}
                 </button>
                 <button type="button" className="btn big" onClick={() => setScheduling(true)}>
                   <CalendarIcon size={18} /> Schedule session
@@ -260,7 +316,10 @@ export function FocusTab() {
               {sessions.slice(0, 30).map((s) => (
                 <li key={s.id} className="session-item">
                   <div className="session-main">
-                    <span className="session-title">{s.activity}</span>
+                    <span className="session-title">
+                      {s.habitId && habits.find((h) => h.id === s.habitId) ? `${habits.find((h) => h.id === s.habitId)!.icon} ` : ''}
+                      {s.activity}
+                    </span>
                     <span className="session-meta muted small">
                       {format(s.startedAt, 'EEE, MMM d · h:mm a')} · {formatDuration(s.focusMs)} focus
                       {s.mode === 'scheduled' && s.plannedMinutes ? ` · of ${formatMinutes(s.plannedMinutes)}` : ''}
@@ -301,10 +360,11 @@ export function FocusTab() {
           onStart={(minutes, act) => {
             setScheduling(false);
             setActivity(act);
-            startFocus({ activity: act, mode: 'scheduled', plannedMinutes: minutes });
+            startFocus({ activity: act, mode: 'scheduled', plannedMinutes: minutes, habitId: act === activity ? habitId : null });
           }}
         />
       )}
+      {settingsOpen && <FocusSettingsDialog onClose={() => setSettingsOpen(false)} timerRunning={!!timer} />}
     </div>
   );
 }

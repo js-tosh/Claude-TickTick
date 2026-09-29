@@ -7,6 +7,7 @@ import { parseKey } from '../../lib/dates';
 import { computeHabitStats, describeFrequency, goalAmount, isDoneValue, isScheduled, progressOf, type LogMap } from '../../lib/habitStats';
 import { useBackHandler } from '../../lib/backStack';
 import { clearDeliveredHabitReminders } from '../../lib/notifications';
+import { startFocus, useFocusSnapshot } from '../../state/focusTimer';
 import { useUI } from '../../state/ui';
 import {
   ArrowLeftIcon,
@@ -18,8 +19,10 @@ import {
   FlameIcon,
   MinusIcon,
   MoreIcon,
+  PlayIcon,
   PlusIcon,
   RateIcon,
+  TimerIcon,
 } from '../Icons';
 import { Menu } from '../Menu';
 import { Modal } from '../Modal';
@@ -37,7 +40,19 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function HabitDetail({ habit, logs, today, onClose, onEdit }: Props) {
   useBackHandler(true, onClose);
-  const { openDialog } = useUI();
+  const { openDialog, setTab, showToast } = useUI();
+  const { timer } = useFocusSnapshot();
+  const doneToday = isDoneValue(habit, logs.get(today)?.value ?? 0);
+
+  const startPomodoro = () => {
+    if (timer) {
+      showToast(`A session for "${timer.activity}" is already running`);
+      setTab('focus');
+      return;
+    }
+    startFocus({ activity: habit.name, mode: 'endless', habitId: habit.id });
+    setTab('focus');
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -94,6 +109,7 @@ export function HabitDetail({ habit, logs, today, onClose, onEdit }: Props) {
             label="Habit options"
             trigger={<MoreIcon />}
             items={[
+              { label: 'Start Pomodoro', icon: <TimerIcon size={16} />, onSelect: startPomodoro },
               { label: 'Edit habit', onSelect: onEdit },
               { label: 'Delete habit', danger: true, onSelect: confirmDelete },
             ]}
@@ -110,6 +126,10 @@ export function HabitDetail({ habit, logs, today, onClose, onEdit }: Props) {
           {habit.goal.type === 'amount' && ` · ${habit.goal.amount} ${habit.goal.unit || 'times'} a day`} · {section} · since{' '}
           {format(parseKey(habit.startDate), 'MMM d, yyyy')}
         </p>
+        <button type="button" className="btn primary pomodoro-btn" onClick={startPomodoro}>
+          <PlayIcon size={16} /> Start Pomodoro
+          <span className="pomodoro-btn-note">{doneToday ? 'already checked in today' : 'checks in when you end'}</span>
+        </button>
 
         <div className="stat-grid">
           <StatCard tone="green" icon={<CheckCircleIcon size={14} />} label="Monthly check-ins" value={plural(stats.monthCheckIns, 'Day')} />

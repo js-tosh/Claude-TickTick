@@ -151,3 +151,18 @@ describe('formatting', () => {
     expect(formatDuration(48 * MIN)).toBe('48m');
   });
 });
+
+describe('focus block length', () => {
+  it('uses the chosen length in endless mode and in scheduled plans', () => {
+    const s = startTimer({ id: 'a', activity: 'x', mode: 'endless', focusMin: 15 }, T0);
+    expect(phaseRemaining(s, T0)).toBe(15 * MIN);
+    const r = advance(s, T0 + 15 * MIN);
+    expect(r.transitions[0].to).toBe('break');
+    expect(phaseRemaining(confirmPhase(r.state, T0 + 15 * MIN), T0 + 15 * MIN)).toBe(5 * MIN);
+    expect(mins(buildScheduledPlan(45, 20))).toEqual([20, 5, 20]);
+    expect(mins(buildScheduledPlan(90, 30))).toEqual([30, 5, 30, 5, 20]);
+    const sched = startTimer({ id: 'b', activity: 'x', mode: 'scheduled', plannedMinutes: 45, focusMin: 30 }, T0);
+    expect(mins(sched.plan!)).toEqual([30, 5, 10]);
+    expect(startTimer({ id: 'c', activity: 'x', mode: 'endless', habitId: 'h1' }, T0).habitId).toBe('h1');
+  });
+});

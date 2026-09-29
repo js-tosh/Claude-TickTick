@@ -20,6 +20,7 @@ export function FocusRatingDialog() {
 
 function RatingForm({ session }: { session: FocusSession }) {
   const [rating, setRating] = useState<number | null>(session.rating);
+  const habit = useLiveQuery(() => (session.habitId ? db.habits.get(session.habitId) : undefined), [session.habitId]);
   const { showToast } = useUI();
 
   const save = async () => {
@@ -50,6 +51,11 @@ function RatingForm({ session }: { session: FocusSession }) {
         <span className="muted">
           {formatDuration(session.focusMs)} of focus · {session.pomodoros} full block{session.pomodoros === 1 ? '' : 's'}
         </span>
+        {habit && (
+          <span className="habit-link-badge">
+            {habit.icon} {habit.name} checked in for today
+          </span>
+        )}
       </p>
       <div className="rating-row" role="radiogroup" aria-label="Rating from 1 to 5">
         {[1, 2, 3, 4, 5].map((n) => (

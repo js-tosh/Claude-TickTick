@@ -6,10 +6,17 @@
  * the rating.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { db } from '../db/db';
 import { saveFocusSession } from '../db/focus';
-import type { FocusMode, FocusSession } from '../db/types';
+import { setHabitValue } from '../db/habits';
+import type { FocusMode, FocusSession, Habit } from '../db/types';
+import { todayKey } from '../lib/dates';
+import { goalAmount } from '../lib/habitStats';
+import { clearDeliveredHabitReminders } from '../lib/notifications';
+import { getSettings } from './settings';
 import { newId } from '../lib/ids';
 import { cancelFocusAlarms, notificationPermission, scheduleFocusAlarm } from '../lib/notifications';
+import { FOCUS_MIN } from '../lib/pomodoro';
 import { isNative } from '../lib/platform';
 import {
   advance,
@@ -32,20 +39,30 @@ export interface FocusSnapshot {
   timer: TimerState | null;
   /** A finished session waiting for its 1–5 rating. */
   pendingRatingId: string | null;
+  /** Habit checked in by the session that just ended (shown once, then cleared). */
+  lastCheckedIn: { habitId: string; name: string; icon: string } | null;
   lastActivity: string;
   /** Android: alarms ring as system notifications (so no in-app chime is needed). */
   alarmsAsNotifications: boolean;
 }
 
 function load(): FocusSnapshot {
-  const empty: FocusSnapshot = { timer: null, pendingRatingId: null, lastActivity: '', alarmsAsNotifications: false };
+  const empty: FocusSnapshot = { timer: null, pendingRatingId: null, lastCheckedIn: null, lastActivity: '', alarmsAsNotifications: false };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return empty;
     const v = JSON.parse(raw) as Partial<FocusSnapshot>;
     // Timers saved by an older version have no confirmation fields.
-    const timer = v.timer ? { ...v.timer, awaitingConfirm: v.timer.awaitingConfirm ?? false, waitingSince: v.timer.waitingSince ?? null } : null;
-    return { ...empty, ...v, timer, alarmsAsNotifications: false };
+    const timer = v.timer
+      ? {
+          ...v.timer,
+          awaitingConfirm: v.timer.awaitingConfirm ?? false,
+          waitingSince: v.timer.waitingSince ?? null,
+          focusMin: v.timer.focusMin ?? FOCUS_MIN,
+          habitId: v.timer.habitId ?? null,
+        }
+      : null;
+    return { ...empty, ...v, timer, lastCheckedIn: null, alarmsAsNotifications: false };
   } catch {
     return empty;
   }
@@ -105,10 +122,28 @@ function syncAlarms(timer: TimerState | null) {
   void scheduleFocusAlarm(next && { at: next.at, to: next.to }, timer.activity);
 }
 
+/** A session started from a habit checks that habit in for today when it ends. */
+async function checkInLinkedHabit(habitId: string | null): Promise<Habit | null> {
+  if (!habitId) return null;
+  try {
+    const habit = await db.habits.get(habitId);
+    if (!habit) return null;
+    const today = todayKey();
+    const current = (await db.habitLogs.get(`${habitId}:${today}`))?.value ?? 0;
+    if (current < goalAmount(habit)) await setHabitValue(habitId, today, goalAmount(habit));
+    void clearDeliveredHabitReminders(habit);
+    return habit;
+  } catch {
+    return null;
+  }
+}
+
 async function finalize(timer: TimerState, endAt: number): Promise<'saved' | 'discarded'> {
   const totals = finishTotals(timer, endAt);
+  const habit = await checkInLinkedHabit(timer.habitId);
+  const lastCheckedIn = habit ? { habitId: habit.id, name: habit.name, icon: habit.icon } : null;
   if (totals.focusMs < MIN_SESSION_MS) {
-    update({ timer: null });
+    update({ timer: null, lastCheckedIn });
     return 'discarded';
   }
   const session: FocusSession = {
@@ -122,11 +157,12 @@ async function finalize(timer: TimerState, endAt: number): Promise<'saved' | 'di
     breakMs: totals.breakMs,
     pomodoros: totals.pomodoros,
     rating: null,
+    habitId: timer.habitId,
     updatedAt: Date.now(),
   };
   // Saved right away (unrated) so nothing is lost if the app closes before rating.
   await saveFocusSession(session);
-  update({ timer: null, pendingRatingId: session.id });
+  update({ timer: null, pendingRatingId: session.id, lastCheckedIn });
   syncAlarms(null);
   return 'saved';
 }
@@ -168,10 +204,10 @@ async function refreshPermission(request: boolean) {
 // Actions
 // ---------------------------------------------------------------------------
 
-export function startFocus(opts: { activity: string; mode: FocusMode; plannedMinutes?: number }) {
+export function startFocus(opts: { activity: string; mode: FocusMode; plannedMinutes?: number; habitId?: string | null }) {
   unlockAudio(); // must run inside the tap that started the session
-  const timer = startTimer({ id: newId(), ...opts }, Date.now());
-  update({ timer, lastActivity: timer.activity });
+  const timer = startTimer({ id: newId(), focusMin: getSettings().focusMin, ...opts }, Date.now());
+  update({ timer, lastActivity: timer.activity, lastCheckedIn: null });
   void refreshPermission(true).then(() => syncAlarms(snap.timer));
 }
 
@@ -223,7 +259,11 @@ export function askRating(sessionId: string) {
 }
 
 export function clearPendingRating() {
-  update({ pendingRatingId: null });
+  update({ pendingRatingId: null, lastCheckedIn: null });
+}
+
+export function clearLastCheckedIn() {
+  update({ lastCheckedIn: null });
 }
 
 // ---------------------------------------------------------------------------

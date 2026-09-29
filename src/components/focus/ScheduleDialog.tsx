@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { buildScheduledPlan, formatMinutes, SCHEDULE_MAX_STEPS, SCHEDULE_STEP_MIN } from '../../lib/pomodoro';
+import { useSettings } from '../../state/settings';
 import { MinusIcon, PlusIcon } from '../Icons';
 import { Modal } from '../Modal';
 
@@ -13,8 +14,9 @@ interface Props {
 export function ScheduleDialog({ initialActivity, onClose, onStart }: Props) {
   const [steps, setSteps] = useState(2);
   const [activity, setActivity] = useState(initialActivity);
+  const { focusMin } = useSettings();
   const minutes = steps * SCHEDULE_STEP_MIN;
-  const plan = buildScheduledPlan(minutes);
+  const plan = buildScheduledPlan(minutes, focusMin);
   const blocks = plan.filter((p) => p.kind === 'focus').length;
   const breaks = plan.length - blocks;
   const endsAt = format(new Date(Date.now() + minutes * 60_000), 'h:mm a');
@@ -59,8 +61,8 @@ export function ScheduleDialog({ initialActivity, onClose, onStart }: Props) {
         ))}
       </div>
       <p className="muted small">
-        {blocks} focus block{blocks === 1 ? '' : 's'} and {breaks} break{breaks === 1 ? '' : 's'}. The alarm rings at each change, and the
-        session ends around {endsAt}.
+        {blocks} focus block{blocks === 1 ? '' : 's'} of up to {focusMin} min and {breaks} break{breaks === 1 ? '' : 's'}. The alarm rings at each
+        change and waits for you, so the session ends around {endsAt} at the earliest.
       </p>
     </Modal>
   );

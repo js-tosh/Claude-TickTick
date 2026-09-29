@@ -137,6 +137,8 @@ export interface FocusSession {
   pomodoros: number;
   /** 1–5, or null when the user skipped rating. */
   rating: number | null;
+  /** The habit this session was started from and checked in, if any. */
+  habitId?: string | null;
   updatedAt: number;
 }
 

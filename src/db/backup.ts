@@ -278,6 +278,7 @@ export function parseBackup(text: string): BackupFile {
         breakMs: Math.max(0, num(f.breakMs, 0)),
         pomodoros: Math.max(0, Math.floor(num(f.pomodoros, 0))),
         rating: rating >= 1 && rating <= 5 ? Math.round(rating) : null,
+        habitId: typeof f.habitId === 'string' ? f.habitId : null,
         updatedAt: num(f.updatedAt, ts),
       };
     });
