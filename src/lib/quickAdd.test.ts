@@ -10,7 +10,7 @@ describe('parseQuickAdd', () => {
   });
 
   it('extracts priority, tags and relative dates', () => {
-    const r = parseQuickAdd('Pay rent tomorrow !high #home #money', NOW);
+    const r = parseQuickAdd('Pay rent tomorrow !urgent #home #money', NOW);
     expect(r.title).toBe('Pay rent');
     expect(r.priority).toBe(5);
     expect(r.tags).toEqual(['home', 'money']);
@@ -19,7 +19,7 @@ describe('parseQuickAdd', () => {
 
   it('understands numeric priority and weekday names', () => {
     const r = parseQuickAdd('Call mom friday !2', NOW);
-    expect(r.priority).toBe(3);
+    expect(r.priority).toBe(1);
     expect(r.dueDate).toBe('2026-09-18');
     expect(r.title).toBe('Call mom');
   });

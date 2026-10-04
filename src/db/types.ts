@@ -1,4 +1,9 @@
-/** Priority levels mirror TickTick: 0 none, 1 low, 3 medium, 5 high. */
+/**
+ * Priority levels: 0 low (the default), 1 medium, 3 high, 5 urgent. The
+ * numbers are stored, so they are kept apart to allow new levels later.
+ * They map onto the Eisenhower matrix: urgent = I, high = II, medium = III,
+ * low = IV.
+ */
 export type Priority = 0 | 1 | 3 | 5;
 
 export type TaskStatus = 'open' | 'done';
@@ -178,11 +183,16 @@ export interface BackupFile {
 /** 2 added habits, habit logs and focus sessions. Version-1 files still import. */
 export const SCHEMA_VERSION = 2;
 
+export const PRIORITIES: Priority[] = [5, 3, 1, 0];
+/** Title given to a task created by "open the full editor" before any text was typed. */
+export const NEW_TASK_TITLE = 'New task';
+export const DEFAULT_PRIORITY: Priority = 0;
+
 export const PRIORITY_LABELS: Record<Priority, string> = {
-  0: 'None',
-  1: 'Low',
-  3: 'Medium',
-  5: 'High',
+  0: 'Low',
+  1: 'Medium',
+  3: 'High',
+  5: 'Urgent',
 };
 
 export const REPEAT_LABELS: Record<Repeat, string> = {

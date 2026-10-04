@@ -16,8 +16,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'Tasks',
-        short_name: 'Tasks',
+        name: 'Just Do-IT!',
+        short_name: 'Just Do-IT!',
         description: 'Offline-first to-do lists with folders, tags and priorities.',
         theme_color: '#4772fa',
         background_color: '#ffffff',

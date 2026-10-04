@@ -45,15 +45,16 @@ const WEEKDAYS: Record<string, Day> = {
 };
 
 const PRIORITY_WORDS: Record<string, Priority> = {
-  '1': 1, low: 1, l: 1,
-  '2': 3, med: 3, medium: 3, m: 3,
-  '3': 5, high: 5, h: 5,
+  '1': 0, low: 0, l: 0,
+  '2': 1, med: 1, medium: 1, m: 1,
+  '3': 3, high: 3, h: 3,
+  '4': 5, urgent: 5, urg: 5, u: 5,
 };
 
 /**
  * Parse TickTick-style shortcuts out of a quick-add string:
- *   "Pay rent tomorrow !high #home #money"
- *   "Call mom friday !2"
+ *   "Pay rent tomorrow !urgent #home #money"
+ *   "Call mom friday !2"          (!1 low, !2 medium, !3 high, !4 urgent)
  *   "Dentist 2026-10-03"
  *   "Close ticket @Work"   (list or folder named Work)
  * Anything not recognised stays in the title.
@@ -72,7 +73,7 @@ export function parseQuickAdd(raw: string, now: Date = new Date()): ParsedQuickA
     const tok = tokens[i];
     const lower = tok.toLowerCase();
 
-    // Priority: !high, !h, !3, !low ...
+    // Priority: !urgent, !high, !h, !3, !low ...
     if (lower.startsWith('!') && lower.length > 1) {
       const p = PRIORITY_WORDS[lower.slice(1)];
       if (p !== undefined) {

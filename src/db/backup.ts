@@ -1,6 +1,9 @@
 import { db } from './db';
 import {
+  DEFAULT_PRIORITY,
   HABIT_COLORS,
+  PRIORITIES,
+  PRIORITY_LABELS,
   SCHEMA_VERSION,
   type BackupFile,
   type FocusSession,
@@ -9,6 +12,7 @@ import {
   type HabitLog,
   type HabitSection,
   type List,
+  type Priority,
   type Task,
   type WeekdayIndex,
 } from './types';
@@ -67,7 +71,7 @@ export async function exportCSV(): Promise<string> {
       t.status,
       t.dueDate ?? '',
       t.dueTime ?? '',
-      String(t.priority),
+      PRIORITY_LABELS[t.priority] ?? String(t.priority),
       t.tags.join(' '),
       t.repeat,
       new Date(t.createdAt).toISOString(),
@@ -206,7 +210,7 @@ export function parseBackup(text: string): BackupFile {
       completedAt: typeof t.completedAt === 'number' ? t.completedAt : null,
       dueDate: isValidKey(t.dueDate as string) ? (t.dueDate as string) : null,
       dueTime: typeof t.dueTime === 'string' && /^\d{2}:\d{2}$/.test(t.dueTime) ? t.dueTime : null,
-      priority: [0, 1, 3, 5].includes(t.priority as number) ? (t.priority as Task['priority']) : 0,
+      priority: PRIORITIES.includes(t.priority as Priority) ? (t.priority as Priority) : DEFAULT_PRIORITY,
       tags: Array.isArray(t.tags) ? normalizeTags(t.tags.map(String)) : [],
       repeat: ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly'].includes(t.repeat as string)
         ? (t.repeat as Task['repeat'])

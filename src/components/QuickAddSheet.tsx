@@ -36,8 +36,10 @@ export function QuickAddSheet({ listId, defaults, placeholder, note, onClose }: 
       <div className="sheet" ref={ref} role="dialog" aria-label="Add a task" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" aria-hidden="true" />
         {note && <div className="sheet-note muted small">{note}</div>}
-        <QuickAdd listId={listId} defaults={defaults} placeholder={placeholder} autoFocus variant="sheet" />
-        <div className="sheet-hint muted small">Enter adds the task. Try “!high”, “#tag”, “@list”, “tomorrow”, “3pm”.</div>
+        <QuickAdd listId={listId} defaults={defaults} placeholder={placeholder} autoFocus variant="sheet" onOpened={onClose} />
+        <div className="sheet-hint muted small">
+          Enter adds the task; the ⤢ button opens the full editor instead. Try “!urgent”, “#tag”, “@list”, “tomorrow”, “3pm”.
+        </div>
       </div>
     </div>
   );

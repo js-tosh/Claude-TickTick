@@ -4,7 +4,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // Data stays on the device: IndexedDB inside the app's private storage.
 const config: CapacitorConfig = {
   appId: 'com.family.tasks',
-  appName: 'Tasks',
+  appName: 'Just Do-IT!',
   webDir: 'dist',
   android: {
     allowMixedContent: false,

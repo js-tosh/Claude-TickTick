@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Folder, List, Priority, Task } from '../../db/types';
+import { PRIORITY_LABELS, type Folder, type List, type Priority, type Task } from '../../db/types';
 import { setTaskDone } from '../../db/repo';
 import { formatDueLabel, relativeBucket } from '../../lib/dates';
 import { sortTasks } from '../../hooks/useData';
@@ -15,11 +15,12 @@ interface Props {
   inbox: List;
 }
 
+/** One quadrant per priority: the quadrant's name is also the priority's name. */
 const QUADRANTS: { priority: Priority; numeral: string; title: string; cls: string }[] = [
-  { priority: 5, numeral: 'I', title: 'Urgent & Important', cls: 'q-high' },
-  { priority: 3, numeral: 'II', title: 'Not Urgent & Important', cls: 'q-med' },
-  { priority: 1, numeral: 'III', title: 'Urgent & Unimportant', cls: 'q-low' },
-  { priority: 0, numeral: 'IV', title: 'Not Urgent & Unimportant', cls: 'q-none' },
+  { priority: 5, numeral: 'I', title: 'Urgent & Important', cls: 'q-urgent' },
+  { priority: 3, numeral: 'II', title: 'Not Urgent & Important', cls: 'q-high' },
+  { priority: 1, numeral: 'III', title: 'Urgent & Unimportant', cls: 'q-med' },
+  { priority: 0, numeral: 'IV', title: 'Not Urgent & Unimportant', cls: 'q-low' },
 ];
 
 /** Eisenhower matrix: the four priorities as four quadrants. */
@@ -64,6 +65,7 @@ export function MatrixTab({ tasks, lists, folders, inbox }: Props) {
                     {q.numeral}
                   </span>
                   <span className="quadrant-title">{q.title}</span>
+                  <span className="quadrant-priority">{PRIORITY_LABELS[q.priority]}</span>
                   <span className="quadrant-count">{b.open.length}</span>
                   <button type="button" className="icon-btn subtle" onClick={() => setAdding(q.priority)} aria-label={`Add a task to ${q.title}`}>
                     <PlusIcon size={16} />
@@ -88,7 +90,7 @@ export function MatrixTab({ tasks, lists, folders, inbox }: Props) {
         <QuickAddSheet
           listId={inbox.id}
           defaults={{ priority: adding }}
-          note={`${QUADRANTS.find((q) => q.priority === adding)?.title} · adds to Inbox unless you write @list`}
+          note={`${PRIORITY_LABELS[adding]} priority · adds to Inbox unless you write @list`}
           placeholder="Add a task…"
           onClose={() => setAdding(null)}
         />

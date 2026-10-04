@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useBackHandler } from '../lib/backStack';
 import { useDraft } from '../hooks/useDraft';
 import type { Folder, List, Priority, Repeat, Task } from '../db/types';
-import { ALL_DAY_REMINDER_TIME, PRIORITY_LABELS, REMINDER_OPTIONS, REPEAT_LABELS } from '../db/types';
+import { ALL_DAY_REMINDER_TIME, NEW_TASK_TITLE, PRIORITIES, PRIORITY_LABELS, REMINDER_OPTIONS, REPEAT_LABELS } from '../db/types';
 import { notificationPermission } from '../lib/notifications';
 import { isNative } from '../lib/platform';
 import { createTask, deleteTask, setTaskDone, updateTask } from '../db/repo';
@@ -96,7 +96,7 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
               <FlagIcon size={16} /> Priority
             </span>
             <select value={task.priority} onChange={(e) => updateTask(task.id, { priority: Number(e.target.value) as Priority })}>
-              {([0, 1, 3, 5] as Priority[]).map((p) => (
+              {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
                   {PRIORITY_LABELS[p]}
                 </option>
@@ -214,11 +214,20 @@ function TitleEditor({ task }: { task: Task }) {
     flush();
   };
 
+  // A task just created from the quick-add "open full editor" button: put the cursor
+  // on its placeholder title so typing replaces it.
+  const fresh = task.title === NEW_TASK_TITLE && Date.now() - task.createdAt < 10_000;
+  useEffect(() => {
+    if (fresh) ref.current?.select();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <textarea
       ref={ref}
       className="detail-title"
       value={value}
+      autoFocus={fresh}
       rows={1}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}

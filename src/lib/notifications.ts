@@ -335,6 +335,7 @@ export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
   return serial(async () => {
     await ensureChannels();
     await cancelPendingInRange(TASK_IDS);
+    await cancelStaleSnoozes(tasks);
     const plan = planTaskReminders(tasks, new Date(), TASK_HORIZON_DAYS);
     if (!plan.length || (await notificationPermission(false)) !== 'granted') return;
     const exact = await exactAllowed();
@@ -344,6 +345,16 @@ export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
     }));
     await LocalNotifications.schedule({ notifications });
   });
+}
+
+/** A snoozed reminder must not ring for a task that was completed or deleted meanwhile. */
+async function cancelStaleSnoozes(tasks: Task[]): Promise<void> {
+  const open = new Set(tasks.filter((t) => t.status === 'open').map((t) => t.id));
+  const { notifications } = await LocalNotifications.getPending();
+  const stale = notifications
+    .filter((n) => n.id >= SNOOZE_IDS[0] && n.id <= SNOOZE_IDS[1] && !open.has(String(n.extra?.taskId)))
+    .map((n) => ({ id: n.id }));
+  if (stale.length) await LocalNotifications.cancel({ notifications: stale });
 }
 
 /** Ring again for one task in SNOOZE_MINUTES. */

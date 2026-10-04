@@ -316,3 +316,10 @@ export const MatrixTabIcon = (p: P) => (
     <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
   </svg>
 );
+
+/** Arrow out of a box: "open the full editor". */
+export const ExpandIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
+  </svg>
+);

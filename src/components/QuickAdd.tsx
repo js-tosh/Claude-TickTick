@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { createTask } from '../db/repo';
-import type { Priority } from '../db/types';
+import { DEFAULT_PRIORITY, NEW_TASK_TITLE, type Priority } from '../db/types';
 import { useFolders, useLists } from '../hooks/useData';
 import { parseQuickAdd, resolveListRef } from '../lib/quickAdd';
 import { todayKey } from '../lib/dates';
 import { notificationPermission } from '../lib/notifications';
 import { isNative } from '../lib/platform';
 import { useUI } from '../state/ui';
-import { PlusIcon } from './Icons';
+import { ExpandIcon, PlusIcon } from './Icons';
 
 interface Props {
   /** Where a new task goes unless the text says "@list". */
@@ -18,19 +18,28 @@ interface Props {
   autoFocus?: boolean;
   /** 'inline' bars hide on phones, where the + button opens a sheet instead. */
   variant?: 'inline' | 'sheet';
+  /** After a task was added with Enter (the box stays open for the next one). */
   onAdded?: () => void;
+  /** After a task was created and the full editor opened on it. */
+  onOpened?: () => void;
 }
 
-export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = 'inline', onAdded }: Props) {
+
+export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = 'inline', onAdded, onOpened }: Props) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const lists = useLists();
   const folders = useFolders();
-  const { showToast } = useUI();
+  const { showToast, selectTask } = useUI();
 
-  const submit = async () => {
+  /**
+   * Create the task from the text. With `open`, the task is created even
+   * from an empty box and the full editor opens on it, so list, folder,
+   * reminder, repeat, notes and subtasks can be set in one go.
+   */
+  const submit = async (open = false) => {
     const raw = text.trim();
-    if (!raw || busy) return;
+    if (busy || (!raw && !open)) return;
     const parsed = parseQuickAdd(raw);
     let title = parsed.title;
     let target = listId;
@@ -39,27 +48,35 @@ export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = '
       if (found) target = found;
       else title = `${title} @${parsed.listRef}`.trim(); // no such list: keep the words
     }
-    if (!title) return;
+    if (!title) {
+      if (!open) return;
+      title = NEW_TASK_TITLE;
+    }
     setBusy(true);
     try {
       const dueDate = parsed.dueDate ?? defaults?.dueDate ?? (parsed.dueTime ? todayKey() : null);
-      await createTask({
+      const task = await createTask({
         listId: target,
         title,
         dueDate,
         dueTime: dueDate ? parsed.dueTime : null,
         // A time means "remind me then".
         reminderMinutes: dueDate && parsed.dueTime ? 0 : null,
-        priority: parsed.priority ?? defaults?.priority ?? 0,
+        priority: parsed.priority ?? defaults?.priority ?? DEFAULT_PRIORITY,
         tags: [...(defaults?.tags ?? []), ...parsed.tags],
       });
       if (dueDate && parsed.dueTime && isNative) void notificationPermission(true);
-      if (target !== listId) {
+      if (target !== listId && !open) {
         const name = lists?.find((l) => l.id === target)?.name ?? parsed.listRef;
         showToast(`Added to ${name}`);
       }
       setText('');
-      onAdded?.();
+      if (open) {
+        onOpened?.();
+        selectTask(task.id);
+      } else {
+        onAdded?.();
+      }
     } finally {
       setBusy(false);
     }
@@ -80,12 +97,22 @@ export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = '
         type="text"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder ?? 'Add a task…  try “Pay rent tomorrow 3pm !high #home @Work”'}
+        placeholder={placeholder ?? 'Add a task…  try “Pay rent tomorrow 3pm !urgent #home @Work”'}
         aria-label="Add a task"
         autoFocus={autoFocus}
         enterKeyHint="done"
         autoComplete="off"
       />
+      <button
+        type="button"
+        className="icon-btn subtle quick-add-expand"
+        onClick={() => void submit(true)}
+        disabled={busy}
+        title="Open the full editor"
+        aria-label="Add and open the full editor"
+      >
+        <ExpandIcon size={18} />
+      </button>
     </form>
   );
 }

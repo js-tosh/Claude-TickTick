@@ -19,10 +19,11 @@
   --border: #e5e7eb;
   --border-strong: #d1d5db;
 
-  --p-high: #e5484d;
-  --p-med: #f5a623;
-  --p-low: #4772fa;
-  --p-none: #b9bec7;
+  /* Priority colours: urgent red, high orange, medium blue, low grey. */
+  --p-urgent: #e5484d;
+  --p-high: #f5a623;
+  --p-med: #4772fa;
+  --p-low: #b9bec7;
 
   --danger: #e5484d;
   --danger-soft: rgba(229, 72, 77, 0.12);
@@ -68,7 +69,7 @@
     --text-faint: #6f7680;
     --border: #2f3237;
     --border-strong: #3d4149;
-    --p-none: #555b66;
+    --p-low: #555b66;
     --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
     --bg-card: #25272b;
@@ -92,7 +93,7 @@
   --text-faint: #6f7680;
   --border: #2f3237;
   --border-strong: #3d4149;
-  --p-none: #555b66;
+  --p-low: #555b66;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
   --bg-card: #25272b;
@@ -594,6 +595,13 @@ select {
   background: transparent;
   border: 0;
 }
+.quick-add-expand {
+  flex: none;
+  color: var(--text-faint);
+}
+.quick-add:focus-within .quick-add-expand {
+  color: var(--accent);
+}
 
 .task-list {
   flex: 1;
@@ -748,7 +756,7 @@ select {
   width: 18px;
   height: 18px;
   margin: 2px;
-  border: 2px solid var(--p-none);
+  border: 2px solid var(--p-low);
   border-radius: 5px;
   position: relative;
   transition:
@@ -756,17 +764,17 @@ select {
     border-color 0.12s;
 }
 .p1 .checkbox {
-  border-color: var(--p-low);
-}
-.p3 .checkbox {
   border-color: var(--p-med);
 }
-.p5 .checkbox {
+.p3 .checkbox {
   border-color: var(--p-high);
 }
+.p5 .checkbox {
+  border-color: var(--p-urgent);
+}
 .checkbox-wrap input:checked + .checkbox {
-  background: var(--p-none);
-  border-color: var(--p-none);
+  background: var(--p-low);
+  border-color: var(--p-low);
 }
 .checkbox-wrap input:checked + .checkbox::after {
   content: '';
@@ -1593,7 +1601,7 @@ input.subtask-title:focus {
 }
 .month-chip {
   padding: 0 3px;
-  border-left: 2px solid var(--p-none);
+  border-left: 2px solid var(--p-low);
   border-radius: 3px;
   background: var(--bg-input);
   font-size: 10px;
@@ -1603,13 +1611,13 @@ input.subtask-title:focus {
   text-overflow: ellipsis;
 }
 .month-chip.p1 {
-  border-left-color: var(--p-low);
-}
-.month-chip.p3 {
   border-left-color: var(--p-med);
 }
-.month-chip.p5 {
+.month-chip.p3 {
   border-left-color: var(--p-high);
+}
+.month-chip.p5 {
+  border-left-color: var(--p-urgent);
 }
 .month-chip.done {
   color: var(--text-faint);
@@ -2575,7 +2583,7 @@ input.select {
   50% { opacity: 1; }
 }
 .ring-sub.waiting {
-  color: var(--p-med);
+  color: var(--p-high);
   font-weight: 600;
 }
 .tab.live .tab-label:not(:empty) {
@@ -2801,8 +2809,9 @@ input.select {
 }
 .quadrant-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
   padding: 8px 6px 4px 10px;
 }
 .quadrant-numeral {
@@ -2815,19 +2824,32 @@ input.select {
   font-weight: 700;
   color: #fff;
 }
+/* Row 1: numeral, priority name, count, +. Row 2: the quadrant's full name. */
 .quadrant-title {
-  flex: 1;
+  flex: 1 1 100%;
+  order: 9;
   min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.quadrant-priority {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
   white-space: nowrap;
 }
 .quadrant-count {
   font-size: 12px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
+}
+.q-urgent .quadrant-numeral,
+.q-urgent .quadrant-title {
+  background-color: var(--p-urgent);
 }
 .q-high .quadrant-numeral,
 .q-high .quadrant-title {
@@ -2839,25 +2861,25 @@ input.select {
 }
 .q-low .quadrant-numeral,
 .q-low .quadrant-title {
-  background-color: var(--p-low);
-}
-.q-none .quadrant-numeral,
-.q-none .quadrant-title {
   background-color: var(--success);
 }
 .quadrant-title {
   background-color: transparent !important;
 }
-.q-high .quadrant-title {
+.q-urgent .quadrant-title,
+.q-urgent .quadrant-priority {
+  color: var(--p-urgent);
+}
+.q-high .quadrant-title,
+.q-high .quadrant-priority {
   color: var(--p-high);
 }
-.q-med .quadrant-title {
+.q-med .quadrant-title,
+.q-med .quadrant-priority {
   color: var(--p-med);
 }
-.q-low .quadrant-title {
-  color: var(--p-low);
-}
-.q-none .quadrant-title {
+.q-low .quadrant-title,
+.q-low .quadrant-priority {
   color: var(--success);
 }
 .quadrant-body {
@@ -2918,8 +2940,6 @@ input.select {
 }
 @media (max-width: 760px) {
   .quadrant-title {
-    white-space: normal;
-    line-height: 1.15;
-    font-size: 12px;
+    font-size: 11px;
   }
 }

@@ -1,5 +1,5 @@
 import { db } from './db';
-import type { Folder, List, Priority, Repeat, Task } from './types';
+import { DEFAULT_PRIORITY, type Folder, type List, type Priority, type Repeat, type Task } from './types';
 import { newId } from '../lib/ids';
 import { nextOccurrence } from '../lib/dates';
 import { clearDeliveredTaskReminders } from '../lib/notifications';
@@ -147,7 +147,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     completedAt: null,
     dueDate: input.dueDate ?? null,
     dueTime: input.dueTime ?? null,
-    priority: input.priority ?? 0,
+    priority: input.priority ?? DEFAULT_PRIORITY,
     tags: normalizeTags(input.tags ?? []),
     repeat: input.repeat ?? 'none',
     reminderMinutes: input.reminderMinutes ?? null,
