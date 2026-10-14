@@ -8,6 +8,12 @@ import type { FocusMode } from '../db/types';
 
 export const FOCUS_MIN = 25;
 export const BREAK_MIN = 5;
+/**
+ * A break counts as "on time" when the next focus block starts within this
+ * long after the break's alarm, so the seconds it takes to reach the phone
+ * don't count as going over.
+ */
+export const BREAK_GRACE_MS = 60_000;
 /** Focus block lengths the user can pick from. */
 export const FOCUS_MIN_OPTIONS = [15, 20, 25, 30] as const;
 export type FocusMinutes = (typeof FOCUS_MIN_OPTIONS)[number];
@@ -49,9 +55,21 @@ export interface TimerState {
   waitingSince: number | null;
   /** Totals of phases already finished (or cut short by skip). */
   focusMs: number;
+  /** Break time, including any time past the break's end before focus resumed. */
   breakMs: number;
   pomodoros: number;
+  /** Breaks passed up when they came round ("Skip break"). */
+  breaksSkipped: number;
+  /** Breaks ended within their time (or within BREAK_GRACE_MS of the alarm). */
+  breaksOnTime: number;
+  /** Breaks that ran past their time before the next focus block started. */
+  breaksOver: number;
+  /** How long those breaks went over, in total. */
+  breakOverMs: number;
 }
+
+/** Break counters, for sessions and for timers saved by older versions. */
+export const NO_BREAK_STATS = { breaksSkipped: 0, breaksOnTime: 0, breaksOver: 0, breakOverMs: 0 };
 
 export interface Transition {
   at: number;
@@ -109,6 +127,7 @@ export function startTimer(
     focusMs: 0,
     breakMs: 0,
     pomodoros: 0,
+    ...NO_BREAK_STATS,
   };
 }
 
@@ -147,10 +166,48 @@ export function advance(s: TimerState, now: number): AdvanceResult {
   return { state: st, transitions, finishedAt: null };
 }
 
-/** The user confirmed the next phase: start it now. */
+/** The phase before the current one: what the timer is waiting after. */
+function previousPhase(s: TimerState): PlannedPhase | null {
+  return s.phaseIndex > 0 ? phaseAt(s, s.phaseIndex - 1) : null;
+}
+
+/** True while waiting to start a break (the moment "Skip break" is offered). */
+export function breakIsNext(s: TimerState): boolean {
+  return s.awaitingConfirm && phaseAt(s, s.phaseIndex)?.kind === 'break';
+}
+
+/**
+ * The user confirmed the next phase: start it now. Confirming focus after a
+ * break settles that break: the wait since its alarm is break time too, and
+ * decides whether it went over.
+ */
 export function confirmPhase(s: TimerState, now: number): TimerState {
   if (!s.awaitingConfirm) return s;
-  return { ...s, awaitingConfirm: false, waitingSince: null, phaseStart: now, pausedAt: null };
+  let st: TimerState = { ...s, awaitingConfirm: false, waitingSince: null, phaseStart: now, pausedAt: null };
+  if (previousPhase(s)?.kind === 'break') st = settleBreak(st, Math.max(0, now - (s.waitingSince ?? now)));
+  return st;
+}
+
+/** Count a finished break as on time or over, given how long it ran past its end. */
+function settleBreak(s: TimerState, overMs: number): TimerState {
+  if (overMs > BREAK_GRACE_MS) {
+    return { ...s, breakMs: s.breakMs + overMs, breaksOver: s.breaksOver + 1, breakOverMs: s.breakOverMs + overMs };
+  }
+  return { ...s, breakMs: s.breakMs + overMs, breaksOnTime: s.breaksOnTime + 1 };
+}
+
+/** "Skip break": pass up the break that is due and start the next focus block now. */
+export function skipBreak(s: TimerState, now: number): TimerState {
+  if (!breakIsNext(s) || !phaseAt(s, s.phaseIndex + 1)) return s;
+  return {
+    ...s,
+    phaseIndex: s.phaseIndex + 1,
+    phaseStart: now,
+    pausedAt: null,
+    awaitingConfirm: false,
+    waitingSince: null,
+    breaksSkipped: s.breaksSkipped + 1,
+  };
 }
 
 export function pauseTimer(s: TimerState, now: number): TimerState {
@@ -187,30 +244,55 @@ export function sessionRemaining(s: TimerState, now: number): number | null {
   return Math.max(0, s.plannedMinutes * MIN - activeElapsed(s, now));
 }
 
-/** End the current phase early and start the next one now (endless mode). */
+/**
+ * End the current phase early and start the next one now: "Take break" in
+ * endless mode, "End break" during a break (a break ended early is on time).
+ */
 export function skipPhase(s: TimerState, now: number): TimerState {
   const phase = phaseAt(s, s.phaseIndex);
-  if (!phase || s.awaitingConfirm) return s;
+  if (!phase || s.awaitingConfirm || !phaseAt(s, s.phaseIndex + 1)) return s;
   const elapsed = phaseElapsed(s, now);
   return {
     ...s,
     focusMs: s.focusMs + (phase.kind === 'focus' ? elapsed : 0),
     breakMs: s.breakMs + (phase.kind === 'break' ? elapsed : 0),
+    breaksOnTime: s.breaksOnTime + (phase.kind === 'break' ? 1 : 0),
     phaseIndex: s.phaseIndex + 1,
     phaseStart: now,
     pausedAt: null,
   };
 }
 
-/** Totals for a session that ends now (partial current phase included). */
-export function finishTotals(s: TimerState, now: number): { focusMs: number; breakMs: number; pomodoros: number; endedAt: number } {
+export interface SessionTotals {
+  focusMs: number;
+  breakMs: number;
+  pomodoros: number;
+  endedAt: number;
+  breaksSkipped: number;
+  breaksOnTime: number;
+  breaksOver: number;
+  breakOverMs: number;
+}
+
+/**
+ * Totals for a session that ends now (partial current phase included). A
+ * break that was running, or had just ended, when the session ended counts
+ * as on time: the session is over, so there was nothing to go back to.
+ */
+export function finishTotals(s: TimerState, now: number): SessionTotals {
   const phase = phaseAt(s, s.phaseIndex);
   const elapsed = phaseElapsed(s, now);
+  const breakRunning = !s.awaitingConfirm && phase?.kind === 'break' && elapsed > 0;
+  const breakJustEnded = s.awaitingConfirm && previousPhase(s)?.kind === 'break';
   return {
     focusMs: s.focusMs + (phase?.kind === 'focus' ? elapsed : 0),
     breakMs: s.breakMs + (phase?.kind === 'break' ? elapsed : 0),
     pomodoros: s.pomodoros,
     endedAt: s.waitingSince ?? s.pausedAt ?? now,
+    breaksSkipped: s.breaksSkipped,
+    breaksOnTime: s.breaksOnTime + (breakRunning || breakJustEnded ? 1 : 0),
+    breaksOver: s.breaksOver,
+    breakOverMs: s.breakOverMs,
   };
 }
 

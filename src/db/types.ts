@@ -164,6 +164,15 @@ export interface FocusSession {
   rating: number | null;
   /** The habit this session was started from and checked in, if any. */
   habitId?: string | null;
+  /**
+   * Break record. Missing on sessions saved before breaks were tracked.
+   * On time = ended within its time (or within a minute of the alarm).
+   */
+  breaksSkipped?: number;
+  breaksOnTime?: number;
+  breaksOver?: number;
+  /** Total time those breaks ran past their end. */
+  breakOverMs?: number;
   updatedAt: number;
 }
 

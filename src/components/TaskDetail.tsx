@@ -9,6 +9,7 @@ import { createTask, deleteTask, setTaskDone, updateTask } from '../db/repo';
 import { useSubtasks, useTask } from '../hooks/useData';
 import { addDaysKey, todayKey } from '../lib/dates';
 import { useUI } from '../state/ui';
+import { BackgroundNotice } from './BackgroundNotice';
 import { ArrowLeftIcon, BellIcon, CalendarIcon, CloseIcon, FlagIcon, MoveIcon, PlusIcon, RepeatIcon, TagIcon, TrashIcon } from './Icons';
 
 interface Props {
@@ -336,6 +337,7 @@ function ReminderEditor({ task }: { task: Task }) {
       )}
       {!task.dueDate && <span className="muted small">Set a due date first.</span>}
       {task.dueDate && value !== null && !isNative && <span className="muted small">Reminders ring in the Android app.</span>}
+      {task.dueDate && value !== null && task.status === 'open' && <BackgroundNotice />}
     </div>
   );
 }

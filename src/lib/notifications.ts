@@ -11,6 +11,7 @@ import { formatDueLabel } from './dates';
 import { FocusAlarm } from './focusAlarmPlugin';
 import { BREAK_MIN } from './pomodoro';
 import type { LogMap } from './habitStats';
+import { askUnrestrictedOnce } from './background';
 import { isNative } from './platform';
 import { HABIT_HORIZON_DAYS, planHabitReminders } from './reminderPlan';
 import { getSettings, type AlarmSound } from '../state/settings';
@@ -28,12 +29,16 @@ const FOCUS_IDS: [number, number] = [1000, 1999];
 const TASK_IDS: [number, number] = [10000, 19999];
 /** One-off snoozed task reminders live in their own range so a re-sync doesn't drop them. */
 const SNOOZE_IDS: [number, number] = [20000, 20999];
+const TEST_REMINDER_ID = 21000;
 const ACTION_TASK = 'TASK_REMINDER';
 export const TASK_DONE_ACTION_ID = 'done';
 export const TASK_SNOOZE_ACTION_ID = 'snooze';
 export const SNOOZE_MINUTES = 10;
 /** Focus alarms repeat this often until the user confirms the next phase. */
 export const FOCUS_REPEAT_MIN = 5;
+/** Each time a focus alarm goes off it rings this many times, RING_GAP_SEC apart. */
+export const FOCUS_RINGS = 3;
+const RING_GAP_SEC = 20;
 /** How many repeats are scheduled ahead (an hour's worth). */
 const FOCUS_REPEATS = 12;
 /** Notification action types (buttons). */
@@ -41,6 +46,7 @@ const ACTION_TO_BREAK = 'FOCUS_TO_BREAK';
 const ACTION_TO_FOCUS = 'FOCUS_TO_FOCUS';
 const ACTION_DONE = 'FOCUS_DONE';
 export const CONFIRM_ACTION_ID = 'confirm';
+export const SKIP_BREAK_ACTION_ID = 'skipBreak';
 const HABIT_IDS: [number, number] = [2000, 9999];
 const SMALL_ICON = 'ic_stat_tasks';
 const ICON_COLOR = '#4772fa';
@@ -109,7 +115,13 @@ function ensureChannels(): Promise<void> {
             { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min`, foreground: true },
           ],
         },
-        { id: ACTION_TO_BREAK, actions: [{ id: CONFIRM_ACTION_ID, title: 'Start break', foreground: true }] },
+        {
+          id: ACTION_TO_BREAK,
+          actions: [
+            { id: CONFIRM_ACTION_ID, title: 'Start break', foreground: true },
+            { id: SKIP_BREAK_ACTION_ID, title: 'Skip break', foreground: true },
+          ],
+        },
         { id: ACTION_TO_FOCUS, actions: [{ id: CONFIRM_ACTION_ID, title: 'Start focus', foreground: true }] },
         { id: ACTION_DONE, actions: [{ id: CONFIRM_ACTION_ID, title: 'Rate session', foreground: true }] },
       ],
@@ -131,7 +143,11 @@ export async function notificationPermission(request: boolean): Promise<Notifica
   try {
     let p = await LocalNotifications.checkPermissions();
     if (p.display !== 'granted' && request) p = await LocalNotifications.requestPermissions();
-    if (p.display === 'granted') return 'granted';
+    if (p.display === 'granted') {
+      // Asked for because a reminder or alarm was just set: also make sure it can ring with the app closed.
+      if (request) void askUnrestrictedOnce();
+      return 'granted';
+    }
     return p.display === 'denied' ? 'denied' : 'prompt';
   } catch {
     return 'unsupported';
@@ -206,7 +222,7 @@ function focusTexts(alarm: FocusAlarm, activity: string, repeat: number): { titl
       title: repeat ? 'Your break is waiting' : 'Focus block done',
       body: repeat
         ? `${activity} ended ${repeat * FOCUS_REPEAT_MIN} min ago. Tap Start break when you're ready.`
-        : `Nice work on ${activity}. Tap Start break to begin your ${BREAK_MIN}-minute break.`,
+        : `Nice work on ${activity}. Start your ${BREAK_MIN}-minute break, or skip it and keep going.`,
       actionTypeId: ACTION_TO_BREAK,
     };
   }
@@ -231,6 +247,7 @@ export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): 
     const channelId = await ensureFocusChannel();
     await cancelPendingInRange(FOCUS_IDS);
     await clearDeliveredInRange(FOCUS_IDS);
+    await FocusAlarm.cancelRings().catch(() => undefined);
     if (!alarm || alarm.at <= Date.now() || (await notificationPermission(false)) !== 'granted') return;
     const exact = await exactAllowed();
     const base = nextFocusIdBase();
@@ -251,13 +268,27 @@ export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): 
       };
     });
     await LocalNotifications.schedule({ notifications });
+    await FocusAlarm.scheduleRings({ at: focusRingTimes(alarm.at) }).catch(() => undefined);
   });
+}
+
+/**
+ * The extra rings after each alarm: the alarm itself rings once, these ring
+ * the showing notification again RING_GAP_SEC apart (see FocusRingReceiver.java).
+ */
+export function focusRingTimes(at: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < FOCUS_REPEATS; i++) {
+    for (let k = 1; k < FOCUS_RINGS; k++) out.push(at + i * FOCUS_REPEAT_MIN * 60_000 + k * RING_GAP_SEC * 1000);
+  }
+  return out;
 }
 
 /** Cancel pending focus alarms and remove any already showing. */
 export function cancelFocusAlarms(): Promise<unknown> {
   if (!isNative) return Promise.resolve();
   return serial(async () => {
+    await FocusAlarm.cancelRings().catch(() => undefined);
     await cancelPendingInRange(FOCUS_IDS);
     await clearDeliveredInRange(FOCUS_IDS);
   });
@@ -369,6 +400,32 @@ export function snoozeTaskReminder(task: Task): Promise<unknown> {
   });
 }
 
+/** A reminder one minute from now, to check reminders arrive with the app closed. */
+export function sendTestReminder(): Promise<unknown> {
+  if (!isNative) return Promise.resolve();
+  return serial(async () => {
+    await ensureChannels();
+    const exact = await exactAllowed();
+    await LocalNotifications.cancel({ notifications: [{ id: TEST_REMINDER_ID }] }).catch(() => undefined);
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: TEST_REMINDER_ID,
+          title: 'Test reminder',
+          body: 'Reminders reach you even with the app closed.',
+          channelId: TASK_CHANNEL,
+          schedule: { at: new Date(Date.now() + 60_000), allowWhileIdle: true },
+          isExactNotification: exact,
+          autoCancel: true,
+          smallIcon: SMALL_ICON,
+          iconColor: ICON_COLOR,
+          extra: { kind: 'test' },
+        },
+      ],
+    });
+  });
+}
+
 /** Drop any tray notification for a task that was just completed or deleted. */
 export function clearDeliveredTaskReminders(taskId: string): Promise<unknown> {
   if (!isNative) return Promise.resolve();
@@ -384,7 +441,7 @@ export function clearDeliveredTaskReminders(taskId: string): Promise<unknown> {
 // ---------------------------------------------------------------------------
 
 export interface NotificationTap {
-  kind: 'focus' | 'habit' | 'task' | undefined;
+  kind: 'focus' | 'habit' | 'task' | 'test' | undefined;
   /** 'tap' for the notification body, or a button's id. */
   actionId: string;
   taskId?: string;

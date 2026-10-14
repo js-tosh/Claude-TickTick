@@ -11,12 +11,14 @@ import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Settings;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import org.json.JSONArray;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 /**
@@ -25,7 +27,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  *  - previews one,
  *  - creates the alarm notification channel with a chosen sound
  *    (on Android 8+ the sound belongs to the channel, not the notification),
- *  - opens the channel's page in Android settings.
+ *  - opens the channel's page in Android settings,
+ *  - rings a showing alarm again a few seconds later (FocusRingReceiver),
+ *  - checks and asks for permission to run in the background, which some
+ *    phones need before reminders can ring while the app is closed.
  */
 @CapacitorPlugin(name = "FocusAlarm")
 public class FocusAlarmPlugin extends Plugin {
@@ -168,6 +173,79 @@ public class FocusAlarmPlugin extends Plugin {
             intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             intent.setData(Uri.parse("package:" + getContext().getPackageName()));
         }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Could not open settings: " + e.getMessage());
+        }
+    }
+
+    /** Times (ms since epoch) at which to ring the showing focus alarm again. */
+    @PluginMethod
+    public void scheduleRings(PluginCall call) {
+        JSONArray at = call.getArray("at");
+        long[] times = new long[at == null ? 0 : at.length()];
+        for (int i = 0; i < times.length; i++) times[i] = at.optLong(i, 0);
+        FocusRingReceiver.schedule(getContext(), times);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void cancelRings(PluginCall call) {
+        FocusRingReceiver.cancel(getContext());
+        call.resolve();
+    }
+
+    /** Whether Android may hold back this app's alarms while it is closed. */
+    @PluginMethod
+    public void backgroundStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        boolean unrestricted = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            unrestricted = pm == null || pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+        }
+        boolean exact = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            android.app.AlarmManager alarms = (android.app.AlarmManager) getContext().getSystemService(Context.ALARM_SERVICE);
+            exact = alarms == null || alarms.canScheduleExactAlarms();
+        }
+        result.put("unrestricted", unrestricted);
+        result.put("exactAlarms", exact);
+        call.resolve(result);
+    }
+
+    /** Show Android's "Let this app always run in background?" prompt (or its settings page). */
+    @PluginMethod
+    public void requestUnrestricted(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            call.resolve();
+            return;
+        }
+        Intent ask = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        ask.setData(Uri.parse("package:" + getContext().getPackageName()));
+        ask.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(ask);
+            call.resolve();
+            return;
+        } catch (Exception ignored) {
+            // Some phones don't offer the prompt; fall back to the app's settings page.
+        }
+        openAppDetails(call);
+    }
+
+    /** The app's page in Android settings (battery, notifications, "pause app activity"). */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        openAppDetails(call);
+    }
+
+    private void openAppDetails(PluginCall call) {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        intent.setData(Uri.parse("package:" + getContext().getPackageName()));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             getContext().startActivity(intent);

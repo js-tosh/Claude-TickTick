@@ -5,6 +5,7 @@ import { clearAll, ensureInbox } from '../../db/repo';
 import { useUI, type Theme } from '../../state/ui';
 import { CopyIcon, DownloadIcon, MoonIcon, PasteIcon, SunIcon, UploadIcon } from '../Icons';
 import { Modal } from '../Modal';
+import { ReminderSettings } from '../BackgroundNotice';
 
 interface Props {
   stats: { folders: number; lists: number; tasks: number; habits: number; sessions: number };
@@ -207,6 +208,11 @@ export function SettingsDialog({ stats }: Props) {
           </div>
         )}
         {error && <p className="error">{error}</p>}
+      </section>
+
+      <section className="settings-section">
+        <h3>Reminders</h3>
+        <ReminderSettings />
       </section>
 
       <section className="settings-section">

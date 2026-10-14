@@ -7,6 +7,7 @@ import { updateSettings, useSettings, type AlarmSound } from '../../state/settin
 import { useUI } from '../../state/ui';
 import { PauseIcon, PlayIcon } from '../Icons';
 import { Modal } from '../Modal';
+import { BackgroundNotice } from '../BackgroundNotice';
 
 const GROUPS: { id: RingtoneGroup; label: string }[] = [
   { id: 'alarm', label: 'Alarm sounds' },
@@ -138,7 +139,10 @@ export function FocusSettingsDialog({ onClose, timerRunning }: { onClose: () => 
                 More options in Android settings
               </button>
             </div>
-            <p className="muted small">The alarm plays at the phone's alarm volume, so it rings even when notifications are quiet.</p>
+            <p className="muted small">
+              The alarm plays at the phone's alarm volume, so it rings even when notifications are quiet. Each time it goes off it rings 3 times, then again every 5 minutes until you continue.
+            </p>
+            <BackgroundNotice />
           </>
         )}
         {error && (

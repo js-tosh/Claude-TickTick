@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   activeElapsed,
   advance,
+  breakIsNext,
   buildScheduledPlan,
   confirmPhase,
   finishTotals,
@@ -9,9 +10,11 @@ import {
   formatDuration,
   formatMinutes,
   pauseTimer,
+  phaseAt,
   phaseRemaining,
   resumeTimer,
   sessionRemaining,
+  skipBreak,
   skipPhase,
   nextTransition,
   startTimer,
@@ -164,5 +167,62 @@ describe('focus block length', () => {
     const sched = startTimer({ id: 'b', activity: 'x', mode: 'scheduled', plannedMinutes: 45, focusMin: 30 }, T0);
     expect(mins(sched.plan!)).toEqual([30, 5, 10]);
     expect(startTimer({ id: 'c', activity: 'x', mode: 'endless', habitId: 'h1' }, T0).habitId).toBe('h1');
+  });
+});
+
+describe('breaks: skip, on time, over', () => {
+  const focusEnd = (s: ReturnType<typeof startTimer>, at: number) => advance(s, at).state;
+
+  it('skips a break that is due and goes straight into focus', () => {
+    const s = startTimer({ id: 'a', activity: 'Study', mode: 'endless' }, T0);
+    const w = focusEnd(s, T0 + 25 * MIN);
+    expect(breakIsNext(w)).toBe(true);
+    const f = skipBreak(w, T0 + 26 * MIN);
+    expect(f.awaitingConfirm).toBe(false);
+    expect(phaseAt(f, f.phaseIndex)?.kind).toBe('focus');
+    expect(f.breaksSkipped).toBe(1);
+    expect(f.breakMs).toBe(0);
+    expect(nextTransition(f, T0 + 26 * MIN)).toEqual({ at: T0 + 51 * MIN, from: 'focus', to: 'break' });
+    // Only offered while a break is due.
+    expect(skipBreak(f, T0 + 27 * MIN)).toBe(f);
+  });
+
+  it('counts a break as on time when focus starts within a minute of its alarm', () => {
+    const s = startTimer({ id: 'a', activity: 'Study', mode: 'endless' }, T0);
+    const b = confirmPhase(focusEnd(s, T0 + 25 * MIN), T0 + 25 * MIN);
+    const w = advance(b, T0 + 30 * MIN).state;
+    expect(breakIsNext(w)).toBe(false);
+    const f = confirmPhase(w, T0 + 30 * MIN + 40_000);
+    expect(f.breaksOnTime).toBe(1);
+    expect(f.breaksOver).toBe(0);
+    expect(f.breakMs).toBe(5 * MIN + 40_000);
+  });
+
+  it('counts a break as over, with the overtime, when focus starts later', () => {
+    const s = startTimer({ id: 'a', activity: 'Study', mode: 'endless' }, T0);
+    const b = confirmPhase(focusEnd(s, T0 + 25 * MIN), T0 + 25 * MIN);
+    const f = confirmPhase(advance(b, T0 + 30 * MIN).state, T0 + 38 * MIN);
+    expect(f.breaksOver).toBe(1);
+    expect(f.breakOverMs).toBe(8 * MIN);
+    expect(f.breakMs).toBe(13 * MIN);
+  });
+
+  it('a break ended early is on time, in scheduled sessions too', () => {
+    const s = startTimer({ id: 'a', activity: 'Study', mode: 'scheduled', plannedMinutes: 90 }, T0);
+    const b = confirmPhase(focusEnd(s, T0 + 25 * MIN), T0 + 25 * MIN);
+    const f = skipPhase(b, T0 + 27 * MIN);
+    expect(phaseAt(f, f.phaseIndex)?.kind).toBe('focus');
+    expect(f.breaksOnTime).toBe(1);
+    expect(f.breakMs).toBe(2 * MIN);
+  });
+
+  it('ending the session during or right after a break counts that break', () => {
+    const s = startTimer({ id: 'a', activity: 'Study', mode: 'endless' }, T0);
+    const b = confirmPhase(focusEnd(s, T0 + 25 * MIN), T0 + 25 * MIN);
+    expect(finishTotals(b, T0 + 27 * MIN)).toMatchObject({ breaksOnTime: 1, breakMs: 2 * MIN, breaksOver: 0 });
+    const w = advance(b, T0 + 30 * MIN).state;
+    expect(finishTotals(w, T0 + 50 * MIN)).toMatchObject({ breaksOnTime: 1, breakMs: 5 * MIN, endedAt: T0 + 30 * MIN });
+    // Waiting to start a break: no break was taken.
+    expect(finishTotals(focusEnd(s, T0 + 25 * MIN), T0 + 26 * MIN)).toMatchObject({ breaksOnTime: 0, breaksSkipped: 0 });
   });
 });

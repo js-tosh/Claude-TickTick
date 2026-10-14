@@ -24,6 +24,9 @@
 
         </activity>
 
+        <!-- Rings a showing focus alarm again a few seconds after it first rang. -->
+        <receiver android:name=".FocusRingReceiver" android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -42,6 +45,9 @@
          USE_EXACT_ALARM is granted automatically on Android 13+ (this app is a timer/reminder app
          and is installed directly, not through the Play Store). -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Lets the app ask Android not to hold back its alarms while it is closed
+         (battery optimisation). Some phones otherwise drop reminders. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Short buzz when a habit is checked in and when the timer rings in the foreground. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 </manifest>

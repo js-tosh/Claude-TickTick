@@ -24,6 +24,7 @@ import {
   confirmFocusPhase,
   pauseFocus,
   resumeFocus,
+  skipFocusBreak,
   skipFocusPhase,
   startFocus,
   stopFocus,
@@ -34,6 +35,7 @@ import { FOCUS_REPEAT_MIN } from '../../lib/notifications';
 import { CalendarIcon, MoreIcon, PauseIcon, PlayIcon, SettingsIcon, SkipIcon, StarIcon, StopIcon } from '../Icons';
 import { Menu } from '../Menu';
 import { ScheduleDialog } from './ScheduleDialog';
+import { SessionDetail } from './SessionDetail';
 import { TimerRing } from './TimerRing';
 
 const MIN = 60_000;
@@ -56,6 +58,8 @@ export function FocusTab() {
   const [habitId, setHabitId] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const openSession = sessions?.find((s) => s.id === openSessionId) ?? null;
   const { showToast, openDialog } = useUI();
   const today = useToday();
 
@@ -113,10 +117,14 @@ export function FocusTab() {
 
   let hint: string;
   if (!timer) hint = `Focus runs ${focusMin}-minute blocks with 5-minute breaks until you end it. Schedule session sets a total length.`;
+  else if (waiting && waitingFor === 'break')
+    hint = isNative
+      ? `Take the break or skip it and keep going. The alarm repeats every ${FOCUS_REPEAT_MIN} minutes until you choose.`
+      : 'Take the break or skip it and keep going.';
   else if (waiting)
     hint = isNative
-      ? `Nothing counts until you start it. The alarm repeats every ${FOCUS_REPEAT_MIN} minutes until you do.`
-      : 'Nothing counts until you start it.';
+      ? `Your break counts until you start focusing, so starting soon keeps it on time. The alarm repeats every ${FOCUS_REPEAT_MIN} minutes.`
+      : 'Your break counts until you start focusing, so starting soon keeps it on time.';
   else if (!isNative) hint = 'Keep this page open. The alarm rings here at the end of each block.';
   else if (!alarmsAsNotifications) hint = 'Notifications are off, so alarms only ring while the app is open.';
   else hint = `The alarm rings when this ${phase?.kind === 'break' ? 'break' : 'block'} ends, even with the screen off, and waits for you.`;
@@ -234,6 +242,11 @@ export function FocusTab() {
                 <button type="button" className="btn primary big" onClick={confirmFocusPhase}>
                   <PlayIcon size={18} /> {waitingFor === 'break' ? 'Start break' : 'Start focus'}
                 </button>
+                {waitingFor === 'break' && (
+                  <button type="button" className="btn big" onClick={skipFocusBreak}>
+                    <SkipIcon size={18} /> Skip break
+                  </button>
+                )}
                 <button type="button" className="btn big danger" onClick={onStop}>
                   <StopIcon size={18} /> End
                 </button>
@@ -244,9 +257,9 @@ export function FocusTab() {
                 <button type="button" className="btn big" onClick={pauseFocus}>
                   <PauseIcon size={18} /> Pause
                 </button>
-                {timer.mode === 'endless' && (
+                {(phase?.kind === 'break' || timer.mode === 'endless') && (
                   <button type="button" className="btn big" onClick={skipFocusPhase}>
-                    <SkipIcon size={18} /> {phase?.kind === 'break' ? 'Skip break' : 'Take break'}
+                    <SkipIcon size={18} /> {phase?.kind === 'break' ? 'End break' : 'Take break'}
                   </button>
                 )}
                 <button type="button" className="btn big danger" onClick={onStop}>
@@ -310,12 +323,12 @@ export function FocusTab() {
         <section className="card-section">
           <h2 className="card-title">History</h2>
           {!sessions?.length ? (
-            <p className="muted small">Finished sessions show up here with their rating.</p>
+            <p className="muted small">Finished sessions show up here with their rating. Tap one for its focus and break details.</p>
           ) : (
             <ul className="session-list">
               {sessions.slice(0, 30).map((s) => (
                 <li key={s.id} className="session-item">
-                  <div className="session-main">
+                  <button type="button" className="session-main" onClick={() => setOpenSessionId(s.id)} aria-label={`Details for ${s.activity}`}>
                     <span className="session-title">
                       {s.habitId && habits.find((h) => h.id === s.habitId) ? `${habits.find((h) => h.id === s.habitId)!.icon} ` : ''}
                       {s.activity}
@@ -324,7 +337,7 @@ export function FocusTab() {
                       {format(s.startedAt, 'EEE, MMM d · h:mm a')} · {formatDuration(s.focusMs)} focus
                       {s.mode === 'scheduled' && s.plannedMinutes ? ` · of ${formatMinutes(s.plannedMinutes)}` : ''}
                     </span>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     className="session-rating"
@@ -361,6 +374,17 @@ export function FocusTab() {
             setScheduling(false);
             setActivity(act);
             startFocus({ activity: act, mode: 'scheduled', plannedMinutes: minutes, habitId: act === activity ? habitId : null });
+          }}
+        />
+      )}
+      {openSession && (
+        <SessionDetail
+          session={openSession}
+          habit={habits.find((h) => h.id === openSession.habitId)}
+          onClose={() => setOpenSessionId(null)}
+          onRate={() => {
+            setOpenSessionId(null);
+            askRating(openSession.id);
           }}
         />
       )}

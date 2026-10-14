@@ -283,6 +283,7 @@ export function parseBackup(text: string): BackupFile {
         focusMs: Math.max(0, num(f.focusMs, 0)),
         breakMs: Math.max(0, num(f.breakMs, 0)),
         pomodoros: Math.max(0, Math.floor(num(f.pomodoros, 0))),
+        ...breakStats(f),
         rating: rating >= 1 && rating <= 5 ? Math.round(rating) : null,
         habitId: typeof f.habitId === 'string' ? f.habitId : null,
         updatedAt: num(f.updatedAt, ts),
@@ -299,6 +300,18 @@ export function parseBackup(text: string): BackupFile {
     habits,
     habitLogs,
     focusSessions,
+  };
+}
+
+/** Break counters of a focus session; left out for sessions from before they were tracked. */
+function breakStats(f: Record<string, unknown>): Partial<FocusSession> {
+  if (typeof f.breaksOnTime !== 'number') return {};
+  const count = (v: unknown) => Math.max(0, Math.floor(num(v, 0)));
+  return {
+    breaksSkipped: count(f.breaksSkipped),
+    breaksOnTime: count(f.breaksOnTime),
+    breaksOver: count(f.breaksOver),
+    breakOverMs: Math.max(0, num(f.breakOverMs, 0)),
   };
 }
 

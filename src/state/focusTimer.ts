@@ -16,7 +16,7 @@ import { clearDeliveredHabitReminders } from '../lib/notifications';
 import { getSettings } from './settings';
 import { newId } from '../lib/ids';
 import { cancelFocusAlarms, notificationPermission, scheduleFocusAlarm } from '../lib/notifications';
-import { FOCUS_MIN } from '../lib/pomodoro';
+import { FOCUS_MIN, NO_BREAK_STATS } from '../lib/pomodoro';
 import { isNative } from '../lib/platform';
 import {
   advance,
@@ -25,6 +25,7 @@ import {
   nextTransition,
   pauseTimer,
   resumeTimer,
+  skipBreak,
   skipPhase,
   startTimer,
   type TimerState,
@@ -55,6 +56,7 @@ function load(): FocusSnapshot {
     // Timers saved by an older version have no confirmation fields.
     const timer = v.timer
       ? {
+          ...NO_BREAK_STATS,
           ...v.timer,
           awaitingConfirm: v.timer.awaitingConfirm ?? false,
           waitingSince: v.timer.waitingSince ?? null,
@@ -156,6 +158,10 @@ async function finalize(timer: TimerState, endAt: number): Promise<'saved' | 'di
     focusMs: totals.focusMs,
     breakMs: totals.breakMs,
     pomodoros: totals.pomodoros,
+    breaksSkipped: totals.breaksSkipped,
+    breaksOnTime: totals.breaksOnTime,
+    breaksOver: totals.breaksOver,
+    breakOverMs: totals.breakOverMs,
     rating: null,
     habitId: timer.habitId,
     updatedAt: Date.now(),
@@ -232,6 +238,16 @@ export function confirmFocusPhase() {
   if (!snap.timer?.awaitingConfirm) return;
   unlockAudio();
   const timer = confirmPhase(snap.timer, Date.now());
+  update({ timer });
+  syncAlarms(timer);
+}
+
+/** Pass up the break that is due and go straight into the next focus block. */
+export function skipFocusBreak() {
+  if (!snap.timer?.awaitingConfirm) return;
+  unlockAudio();
+  const timer = skipBreak(snap.timer, Date.now());
+  if (timer === snap.timer) return;
   update({ timer });
   syncAlarms(timer);
 }

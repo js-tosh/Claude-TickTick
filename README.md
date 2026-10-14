@@ -11,7 +11,7 @@ The app has four tabs along the bottom:
 | **Tasks** | Folders → lists → tasks → subtasks. Inbox, Today, Next 7 Days, All, Completed, tags, search. Due date and time, priority, notes, repeat. Priorities Urgent, High, Medium and Low (the default). Quick-add shortcuts such as `Pay rent tomorrow 3pm !urgent #home @Work` (`@` sends the task to a list or folder by name; a time also sets a reminder); the ⤢ button next to the box creates the task and opens the full editor right away. Reminders: a notification at the due time or up to a day before, with Mark done and Snooze buttons; all-day tasks can remind at a chosen time. On phones the floating + button opens the quick-add bar. |
 | **Matrix** | Eisenhower matrix: four quadrants, one per priority: Urgent, High, Medium and Low. Tap a task to edit it, tick it off in place, or use the quadrant's + to add one with that priority. |
 | **Calendar** | Month, week and day views of every task with a due date. Tap a day to see it or add a task on it; tap a task to edit it. |
-| **Focus** | Name what you're working on and press **Focus**: a focus block (15, 20, 25 or 30 minutes, set with the gear icon), then an alarm. The break only starts when you tap **Start break** (in the app or on the notification); until then the alarm repeats every 5 minutes and nothing counts. Same at the end of the break. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. The gear icon also lets you pick the alarm sound from the phone's ringtones. |
+| **Focus** | Name what you're working on and press **Focus**: a focus block (15, 20, 25 or 30 minutes, set with the gear icon), then an alarm. The break only starts when you tap **Start break**, or tap **Skip break** to go straight into the next block (both in the app and on the notification). Each alarm rings 3 times, then repeats every 5 minutes until you continue; nothing counts while it waits. Same at the end of the break, except that the break keeps counting until you start focusing. **Schedule session** picks a total length in 45-minute steps and ends on its own. Every session asks for a 1–5 usefulness rating and is kept in the history, with totals per activity. Tap a session in the history for its total focus and break time, and how many breaks were done in the 5 minutes, went over (and by how much), or were skipped. The gear icon also lets you pick the alarm sound from the phone's ringtones. |
 | **Habits** | Up to 4 habits. Each habit's page has **Start Pomodoro**, which runs a focus session for it and checks the habit in for today when you press End. Each has an icon, a schedule (every day, chosen weekdays, or every few days), a daily goal ("achieve it all" or an amount such as 8 glasses), a start date, goal days, a section (Morning, Afternoon, Night, Others) and reminders. The tracker shows the last 7 days; each habit opens to its streak, check-in rate, goal progress, month calendar and notes. |
 
 ## Install on an Android phone
@@ -33,7 +33,10 @@ deletes its data, so export a backup first if you ever do.)
 
 On first use the app asks for permission to send notifications. Allow it:
 that is how the focus alarm rings with the screen off and how habit reminders
-arrive.
+arrive. It then asks to run in the background without battery restrictions;
+allow that too, or Android may hold back reminders while the app is closed.
+**☰ → Settings & backup → Reminders** shows the status and can send a test
+reminder (close the app and wait a minute).
 
 ## Backups and moving data
 

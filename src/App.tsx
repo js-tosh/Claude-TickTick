@@ -12,6 +12,7 @@ import {
   CONFIRM_ACTION_ID,
   onNotificationTap,
   scheduleHabitReminders,
+  SKIP_BREAK_ACTION_ID,
   scheduleTaskReminders,
   snoozeTaskReminder,
   TASK_DONE_ACTION_ID,
@@ -19,7 +20,7 @@ import {
   SNOOZE_MINUTES as SNOOZE_MIN,
 } from './lib/notifications';
 import { setTaskDone } from './db/repo';
-import { confirmFocusPhase } from './state/focusTimer';
+import { confirmFocusPhase, skipFocusBreak } from './state/focusTimer';
 import { isNative } from './lib/platform';
 import { useUI, type Theme } from './state/ui';
 import { Sidebar } from './components/Sidebar';
@@ -183,6 +184,7 @@ function useNotificationTaps(setTab: (t: 'tasks' | 'focus' | 'habits') => void, 
       if (kind === 'focus') {
         setTab('focus');
         if (actionId === CONFIRM_ACTION_ID) confirmFocusPhase();
+        else if (actionId === SKIP_BREAK_ACTION_ID) skipFocusBreak();
       } else if (kind === 'habit') {
         setTab('habits');
       } else if (kind === 'task' && taskId) {
