@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Folder, List } from '../db/types';
+import { locationOf, type Folder, type List, type Location } from '../db/types';
 import type { Counts, TagInfo } from '../hooks/useData';
 import { useUI, type View } from '../state/ui';
 import { deleteFolder, deleteList, updateFolder } from '../db/repo';
@@ -21,6 +21,7 @@ import {
   WeekIcon,
 } from './Icons';
 import { Menu } from './Menu';
+import { CLOUD_READY } from '../lib/cloud';
 
 interface Props {
   folders: Folder[];
@@ -91,13 +92,7 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
     else setView(lastNonSearch.current);
   };
 
-  const topLevelLists = lists.filter((l) => !l.folderId && !l.isInbox);
-  const listsByFolder = new Map<string, List[]>();
-  for (const l of lists) {
-    if (!l.folderId) continue;
-    if (!listsByFolder.has(l.folderId)) listsByFolder.set(l.folderId, []);
-    listsByFolder.get(l.folderId)!.push(l);
-  }
+  const listsByFolder = groupByFolder(lists);
 
   const confirmDeleteList = (l: List) => {
     const n = counts.perList.get(l.id) ?? 0;
@@ -151,69 +146,36 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
             <NavItem v={{ kind: 'completed' }} icon={<DoneIcon />} label="Completed" />
           </div>
 
-          <div className="nav-group">
-            <div className="nav-heading">
-              <span>Lists</span>
-              <Menu
-                label="Add list or folder"
-                trigger={<PlusIcon size={16} />}
-                items={[
-                  { label: 'New list', icon: <ListIcon size={16} />, onSelect: () => openDialog({ kind: 'list' }) },
-                  { label: 'New folder', icon: <FolderIcon size={16} />, onSelect: () => openDialog({ kind: 'folder' }) },
-                ]}
-              />
-            </div>
-
-            {folders.map((f) => {
-              const inside = listsByFolder.get(f.id) ?? [];
-              const openCount = inside.reduce((n, l) => n + (counts.perList.get(l.id) ?? 0), 0);
-              return (
-                <div key={f.id} className="folder">
-                  <div className="nav-row">
-                    <button
-                      type="button"
-                      className="nav-item folder-toggle"
-                      onClick={() => updateFolder(f.id, { collapsed: !f.collapsed })}
-                      aria-expanded={!f.collapsed}
-                    >
-                      <span className={`nav-icon chevron${f.collapsed ? '' : ' open'}`}>
-                        <ChevronIcon size={14} />
-                      </span>
-                      <span className="nav-icon">
-                        <FolderIcon />
-                      </span>
-                      <span className="nav-label">{f.name}</span>
-                      {f.collapsed && openCount > 0 && <span className="nav-count">{openCount}</span>}
-                    </button>
-                    <Menu
-                      label={`Options for folder ${f.name}`}
-                      trigger={<MoreIcon size={16} />}
-                      className="row-menu"
-                      items={[
-                        { label: 'New list in folder', onSelect: () => openDialog({ kind: 'list', folderId: f.id }) },
-                        { label: 'Rename folder', onSelect: () => openDialog({ kind: 'folder', folderId: f.id }) },
-                        { label: 'Delete folder', danger: true, onSelect: () => confirmDeleteFolder(f) },
-                      ]}
-                    />
-                  </div>
-                  {!f.collapsed && (
-                    <div className="folder-lists">
-                      {inside.length === 0 && <div className="nav-empty">No lists yet</div>}
-                      {inside.map((l) => (
-                        <ListRow key={l.id} list={l} nested count={counts.perList.get(l.id) ?? 0} onDelete={confirmDeleteList} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {topLevelLists.map((l) => (
-              <ListRow key={l.id} list={l} count={counts.perList.get(l.id) ?? 0} onDelete={confirmDeleteList} />
-            ))}
-
-            {folders.length === 0 && topLevelLists.length === 0 && <div className="nav-empty">Create a list or folder with the + button.</div>}
-          </div>
+          <LocationSection
+            location="local"
+            title="Local"
+            subtitle="On this phone"
+            folders={folders}
+            lists={lists}
+            counts={counts}
+            onDeleteList={confirmDeleteList}
+            onDeleteFolder={confirmDeleteFolder}
+          />
+          <LocationSection
+            location="cloud"
+            title="Cloud"
+            subtitle="Synced to your account"
+            folders={folders}
+            lists={lists}
+            counts={counts}
+            onDeleteList={confirmDeleteList}
+            onDeleteFolder={confirmDeleteFolder}
+          />
+          <LocationSection
+            location="shared"
+            title="Shared with me"
+            subtitle="Lists others share with you"
+            folders={folders}
+            lists={lists}
+            counts={counts}
+            onDeleteList={confirmDeleteList}
+            onDeleteFolder={confirmDeleteFolder}
+          />
 
           {tags.length > 0 && (
             <div className="nav-group">
@@ -252,5 +214,126 @@ export function Sidebar({ folders, lists, tags, counts }: Props) {
         </div>
       </aside>
     </>
+  );
+}
+
+function groupByFolder(lists: List[]): Map<string, List[]> {
+  const m = new Map<string, List[]>();
+  for (const l of lists) {
+    if (!l.folderId) continue;
+    if (!m.has(l.folderId)) m.set(l.folderId, []);
+    m.get(l.folderId)!.push(l);
+  }
+  return m;
+}
+
+
+/** One of the three places lists live: Local, Cloud, Shared with me. */
+function LocationSection({
+  location,
+  title,
+  subtitle,
+  folders: allFolders,
+  lists: allLists,
+  counts,
+  onDeleteList,
+  onDeleteFolder,
+}: {
+  location: Location;
+  title: string;
+  subtitle: string;
+  folders: Folder[];
+  lists: List[];
+  counts: Counts;
+  onDeleteList: (l: List) => void;
+  onDeleteFolder: (f: Folder) => void;
+}) {
+  const { openDialog } = useUI();
+  const folders = allFolders.filter((f) => locationOf(f) === location);
+  const lists = allLists.filter((l) => locationOf(l) === location);
+  const listsByFolder = groupByFolder(lists);
+  const topLevelLists = lists.filter((l) => !l.folderId && !l.isInbox);
+  const canAdd = location === 'local' || (location === 'cloud' && CLOUD_READY);
+  const empty = folders.length === 0 && topLevelLists.length === 0;
+
+  return (
+    <div className={`nav-group location-section loc-${location}`}>
+      <div className="nav-heading">
+        <span className="location-title">
+          <span>{title}</span>
+          <span className="location-sub">{subtitle}</span>
+        </span>
+        {canAdd && (
+          <Menu
+            label={`Add a ${title.toLowerCase()} list or folder`}
+            trigger={<PlusIcon size={16} />}
+            items={[
+              { label: 'New list', icon: <ListIcon size={16} />, onSelect: () => openDialog({ kind: 'list', location }) },
+              { label: 'New folder', icon: <FolderIcon size={16} />, onSelect: () => openDialog({ kind: 'folder', location }) },
+            ]}
+          />
+        )}
+      </div>
+
+      {folders.map((f) => {
+        const inside = listsByFolder.get(f.id) ?? [];
+        const openCount = inside.reduce((n, l) => n + (counts.perList.get(l.id) ?? 0), 0);
+        return (
+          <div key={f.id} className="folder">
+            <div className="nav-row">
+              <button
+                type="button"
+                className="nav-item folder-toggle"
+                onClick={() => updateFolder(f.id, { collapsed: !f.collapsed })}
+                aria-expanded={!f.collapsed}
+              >
+                <span className={`nav-icon chevron${f.collapsed ? '' : ' open'}`}>
+                  <ChevronIcon size={14} />
+                </span>
+                <span className="nav-icon">
+                  <FolderIcon />
+                </span>
+                <span className="nav-label">{f.name}</span>
+                {f.collapsed && openCount > 0 && <span className="nav-count">{openCount}</span>}
+              </button>
+              <Menu
+                label={`Options for folder ${f.name}`}
+                trigger={<MoreIcon size={16} />}
+                className="row-menu"
+                items={[
+                  { label: 'New list in folder', onSelect: () => openDialog({ kind: 'list', folderId: f.id, location }) },
+                  { label: 'Rename folder', onSelect: () => openDialog({ kind: 'folder', folderId: f.id }) },
+                  { label: 'Delete folder', danger: true, onSelect: () => onDeleteFolder(f) },
+                ]}
+              />
+            </div>
+            {!f.collapsed && (
+              <div className="folder-lists">
+                {inside.length === 0 && <div className="nav-empty">No lists yet</div>}
+                {inside.map((l) => (
+                  <ListRow key={l.id} list={l} nested count={counts.perList.get(l.id) ?? 0} onDelete={onDeleteList} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {topLevelLists.map((l) => (
+        <ListRow key={l.id} list={l} count={counts.perList.get(l.id) ?? 0} onDelete={onDeleteList} />
+      ))}
+
+      {empty && (
+        <div className="nav-empty">
+          {location === 'local'
+            ? 'Create a list or folder with the + button.'
+            : location === 'cloud'
+              ? CLOUD_READY
+                ? 'Create a cloud list with the + button, or move a list here.'
+                : 'Sign in to keep lists in the cloud and share them. Coming soon.'
+              : 'Lists other people share with you will show up here.'}
+        </div>
+      )}
+    </div>
   );
 }

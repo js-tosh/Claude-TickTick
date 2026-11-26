@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createTask } from '../db/repo';
-import { DEFAULT_PRIORITY, NEW_TASK_TITLE, type Priority } from '../db/types';
+import { DEFAULT_PRIORITY, NEW_TASK_TITLE, type ItemKind, type Priority } from '../db/types';
 import { useFolders, useLists } from '../hooks/useData';
 import { parseQuickAdd, resolveListRef } from '../lib/quickAdd';
 import { todayKey } from '../lib/dates';
@@ -15,6 +15,8 @@ interface Props {
   /** Defaults applied by the current view (e.g. Today sets dueDate). */
   defaults?: { dueDate?: string | null; tags?: string[]; priority?: Priority };
   placeholder?: string;
+  /** Add a task (default) or a note. */
+  kind?: ItemKind;
   autoFocus?: boolean;
   /** 'inline' bars hide on phones, where the + button opens a sheet instead. */
   variant?: 'inline' | 'sheet';
@@ -25,7 +27,7 @@ interface Props {
 }
 
 
-export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = 'inline', onAdded, onOpened }: Props) {
+export function QuickAdd({ listId, defaults, placeholder, kind = 'task', autoFocus, variant = 'inline', onAdded, onOpened }: Props) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const lists = useLists();
@@ -50,13 +52,14 @@ export function QuickAdd({ listId, defaults, placeholder, autoFocus, variant = '
     }
     if (!title) {
       if (!open) return;
-      title = NEW_TASK_TITLE;
+      title = kind === 'note' ? 'New note' : NEW_TASK_TITLE;
     }
     setBusy(true);
     try {
       const dueDate = parsed.dueDate ?? defaults?.dueDate ?? (parsed.dueTime ? todayKey() : null);
       const task = await createTask({
         listId: target,
+        kind,
         title,
         dueDate,
         dueTime: dueDate ? parsed.dueTime : null,

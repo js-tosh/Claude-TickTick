@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { createFolder, updateFolder } from '../../db/repo';
-import type { Folder } from '../../db/types';
+import type { Folder, Location } from '../../db/types';
 import { useUI } from '../../state/ui';
 import { Modal } from '../Modal';
 
-export function FolderDialog({ folder }: { folder?: Folder }) {
+export function FolderDialog({ folder, location = 'local' }: { folder?: Folder; location?: Location }) {
   const { closeDialog } = useUI();
   const [name, setName] = useState(folder?.name ?? '');
   const [busy, setBusy] = useState(false);
@@ -14,7 +14,7 @@ export function FolderDialog({ folder }: { folder?: Folder }) {
     setBusy(true);
     try {
       if (folder) await updateFolder(folder.id, { name: name.trim() });
-      else await createFolder(name);
+      else await createFolder(name, location);
       closeDialog();
     } finally {
       setBusy(false);

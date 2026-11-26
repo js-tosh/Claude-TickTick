@@ -1,7 +1,7 @@
 import type { List, Task } from '../db/types';
 import { formatDueLabel, formatTime, relativeBucket } from '../lib/dates';
 import { setTaskDone } from '../db/repo';
-import { BellIcon, ChevronIcon, RepeatIcon } from './Icons';
+import { BellIcon, ChevronIcon, NoteIcon, RepeatIcon } from './Icons';
 
 interface Props {
   task: Task;
@@ -52,17 +52,24 @@ export function TaskRow({ task, subtasks = [], list, showList, selected, expande
       ) : (
         <span className="expand-spacer" />
       )}
-      <label className="checkbox-wrap" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={done}
-          onChange={(e) => setTaskDone(task.id, e.target.checked)}
-          aria-label={done ? `Mark "${task.title}" not done` : `Complete "${task.title}"`}
-        />
-        <span className="checkbox" />
-      </label>
+      {task.kind === 'note' ? (
+        <span className="note-badge" aria-label="Note">
+          <NoteIcon size={16} />
+        </span>
+      ) : (
+        <label className="checkbox-wrap" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={done}
+            onChange={(e) => setTaskDone(task.id, e.target.checked)}
+            aria-label={done ? `Mark "${task.title}" not done` : `Complete "${task.title}"`}
+          />
+          <span className="checkbox" />
+        </label>
+      )}
       <div className="task-main">
         <div className="task-title">{task.title}</div>
+        {task.kind === 'note' && task.notes.trim() && <div className="note-snippet">{task.notes.trim().split('\n')[0]}</div>}
         <div className="task-meta">
           {task.dueDate && dueStyle === 'full' && (
             <span className={`meta-chip due ${bucket ?? ''}`}>
@@ -82,7 +89,7 @@ export function TaskRow({ task, subtasks = [], list, showList, selected, expande
               {subtasks.length - openSubs}/{subtasks.length}
             </span>
           )}
-          {task.notes.trim() && <span className="meta-chip">notes</span>}
+          {task.kind !== 'note' && task.notes.trim() && <span className="meta-chip">notes</span>}
           {task.tags.map((t) => (
             <span key={t} className="meta-chip tag">
               #{t}

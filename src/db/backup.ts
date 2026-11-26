@@ -12,6 +12,7 @@ import {
   type HabitLog,
   type HabitSection,
   type List,
+  type Location,
   type Priority,
   type Task,
   type WeekdayIndex,
@@ -183,6 +184,7 @@ export function parseBackup(text: string): BackupFile {
     name: str(f.name, 'Untitled folder'),
     sortOrder: num(f.sortOrder, 0),
     collapsed: Boolean(f.collapsed),
+    location: asLocation(f.location),
     createdAt: num(f.createdAt, ts),
     updatedAt: num(f.updatedAt, ts),
   }));
@@ -194,6 +196,7 @@ export function parseBackup(text: string): BackupFile {
     color: typeof l.color === 'string' ? l.color : null,
     sortOrder: num(l.sortOrder, 0),
     isInbox: Boolean(l.isInbox),
+    location: l.isInbox ? 'local' : asLocation(l.location),
     createdAt: num(l.createdAt, ts),
     updatedAt: num(l.updatedAt, ts),
   }));
@@ -204,6 +207,7 @@ export function parseBackup(text: string): BackupFile {
       id: str(t.id),
       listId: t.listId as string,
       parentId: typeof t.parentId === 'string' ? t.parentId : null,
+      kind: t.kind === 'note' ? 'note' : 'task',
       title: str(t.title, 'Untitled task'),
       notes: str(t.notes, ''),
       status: t.status === 'done' ? 'done' : 'open',
@@ -313,6 +317,10 @@ function breakStats(f: Record<string, unknown>): Partial<FocusSession> {
     breaksOver: count(f.breaksOver),
     breakOverMs: Math.max(0, num(f.breakOverMs, 0)),
   };
+}
+
+function asLocation(v: unknown): Location {
+  return v === 'cloud' || v === 'shared' ? v : 'local';
 }
 
 function arr(v: unknown): Record<string, unknown>[] {

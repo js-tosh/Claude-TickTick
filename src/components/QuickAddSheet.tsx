@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import type { Priority } from '../db/types';
+import { useEffect, useRef, useState } from 'react';
+import { ITEM_KINDS, type ItemKind, type Priority } from '../db/types';
 import { useBackHandler } from '../lib/backStack';
 import { PlusIcon } from './Icons';
 import { QuickAdd } from './QuickAdd';
@@ -17,6 +17,7 @@ interface SheetProps {
 export function QuickAddSheet({ listId, defaults, placeholder, note, onClose }: SheetProps) {
   useBackHandler(true, onClose);
   const ref = useRef<HTMLDivElement>(null);
+  const [kind, setKind] = useState<ItemKind>('task');
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -35,8 +36,34 @@ export function QuickAddSheet({ listId, defaults, placeholder, note, onClose }: 
     <div className="sheet-scrim" onClick={onClose} role="presentation">
       <div className="sheet" ref={ref} role="dialog" aria-label="Add a task" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-handle" aria-hidden="true" />
-        {note && <div className="sheet-note muted small">{note}</div>}
-        <QuickAdd listId={listId} defaults={defaults} placeholder={placeholder} autoFocus variant="sheet" onOpened={onClose} />
+        <div className="sheet-top">
+          <div className="segmented small" role="radiogroup" aria-label="Add a task or a note">
+            {ITEM_KINDS.map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                role="radio"
+                aria-checked={kind === k.id}
+                className={kind === k.id ? 'on' : ''}
+                // Keep the keyboard up: don't take focus from the input.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setKind(k.id)}
+              >
+                {k.label}
+              </button>
+            ))}
+          </div>
+          {note && <div className="sheet-note muted small">{note}</div>}
+        </div>
+        <QuickAdd
+          listId={listId}
+          defaults={defaults}
+          placeholder={kind === 'note' ? 'Note title… then ⤢ to write it out' : placeholder}
+          kind={kind}
+          autoFocus
+          variant="sheet"
+          onOpened={onClose}
+        />
         <div className="sheet-hint muted small">
           Enter adds the task; the ⤢ button opens the full editor instead. Try “!urgent”, “#tag”, “@list”, “tomorrow”, “3pm”.
         </div>

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useBackHandler } from '../lib/backStack';
 import { useDraft } from '../hooks/useDraft';
-import type { Folder, List, Priority, Repeat, Task } from '../db/types';
-import { ALL_DAY_REMINDER_TIME, NEW_TASK_TITLE, PRIORITIES, PRIORITY_LABELS, REMINDER_OPTIONS, REPEAT_LABELS } from '../db/types';
+import type { Folder, ItemKind, List, Location, Priority, Repeat, Task } from '../db/types';
+import { CLOUD_READY } from '../lib/cloud';
+import { ALL_DAY_REMINDER_TIME, ITEM_KINDS, LOCATIONS, NEW_TASK_TITLE, PRIORITIES, isNote, locationOf, PRIORITY_LABELS, REMINDER_OPTIONS, REPEAT_LABELS } from '../db/types';
 import { notificationPermission } from '../lib/notifications';
 import { isNative } from '../lib/platform';
 import { createTask, deleteTask, setTaskDone, updateTask } from '../db/repo';
@@ -10,7 +11,7 @@ import { useSubtasks, useTask } from '../hooks/useData';
 import { addDaysKey, todayKey } from '../lib/dates';
 import { useUI } from '../state/ui';
 import { BackgroundNotice } from './BackgroundNotice';
-import { ArrowLeftIcon, BellIcon, CalendarIcon, CloseIcon, FlagIcon, MoveIcon, PlusIcon, RepeatIcon, TagIcon, TrashIcon } from './Icons';
+import { ArrowLeftIcon, BellIcon, CalendarIcon, CloseIcon, FlagIcon, MoveIcon, NoteIcon, PlusIcon, RepeatIcon, TagIcon, TrashIcon } from './Icons';
 
 interface Props {
   taskId: string;
@@ -37,6 +38,8 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
       </aside>
     );
   }
+
+  const note = isNote(task);
 
   const confirmDelete = () =>
     openDialog({
@@ -76,17 +79,29 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
 
       <div className="detail-scroll">
         <div className={`detail-title-row p${task.priority}${task.status === 'done' ? ' done' : ''}`}>
-          <label className="checkbox-wrap large">
-            <input
-              type="checkbox"
-              checked={task.status === 'done'}
-              onChange={(e) => setTaskDone(task.id, e.target.checked)}
-              aria-label={task.status === 'done' ? 'Mark not done' : 'Mark done'}
-            />
-            <span className="checkbox" />
-          </label>
+          {note ? (
+            <span className="note-badge large" aria-label="Note">
+              <NoteIcon size={20} />
+            </span>
+          ) : (
+            <label className="checkbox-wrap large">
+              <input
+                type="checkbox"
+                checked={task.status === 'done'}
+                onChange={(e) => setTaskDone(task.id, e.target.checked)}
+                aria-label={task.status === 'done' ? 'Mark not done' : 'Mark done'}
+              />
+              <span className="checkbox" />
+            </label>
+          )}
           <TitleEditor key={task.id} task={task} />
         </div>
+
+        {note && (
+          <div className="field note-body">
+            <NotesEditor key={task.id} task={task} placeholder="Write anything: plans, ideas, what you liked…" minHeight={220} />
+          </div>
+        )}
 
         <div className="field-grid">
           <DueEditor task={task} />
@@ -105,7 +120,7 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
             </select>
           </label>
 
-          {task.parentId === null && (
+          {task.parentId === null && !note && (
             <label className="field">
               <span className="field-label">
                 <RepeatIcon size={16} /> Repeat
@@ -128,33 +143,20 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
           {task.parentId === null && (
             <label className="field">
               <span className="field-label">
-                <MoveIcon size={16} /> List
+                {note ? <NoteIcon size={16} /> : <MoveIcon size={16} />} Type
               </span>
-              <select value={task.listId} onChange={(e) => updateTask(task.id, { listId: e.target.value })}>
-                {lists
-                  .filter((l) => !l.folderId)
-                  .map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                {folders.map((f) => {
-                  const inside = lists.filter((l) => l.folderId === f.id);
-                  if (!inside.length) return null;
-                  return (
-                    <optgroup key={f.id} label={f.name}>
-                      {inside.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
+              <select value={task.kind ?? 'task'} onChange={(e) => updateTask(task.id, { kind: e.target.value as ItemKind })}>
+                {ITEM_KINDS.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
               </select>
             </label>
           )}
         </div>
+
+        {task.parentId === null && <PlaceEditor key={task.id} task={task} lists={lists} folders={folders} />}
 
         <div className="field">
           <span className="field-label">
@@ -163,12 +165,14 @@ export function TaskDetail({ taskId, lists, folders }: Props) {
           <TagEditor key={task.id} task={task} />
         </div>
 
-        <div className="field">
-          <span className="field-label">Notes</span>
-          <NotesEditor key={task.id} task={task} />
-        </div>
+        {!note && (
+          <div className="field">
+            <span className="field-label">Notes</span>
+            <NotesEditor key={task.id} task={task} />
+          </div>
+        )}
 
-        {task.parentId === null && (
+        {task.parentId === null && !note && (
           <div className="field">
             <span className="field-label">
               Subtasks{' '}
@@ -391,24 +395,24 @@ function TagEditor({ task }: { task: Task }) {
   );
 }
 
-function NotesEditor({ task }: { task: Task }) {
+function NotesEditor({ task, placeholder = 'Add notes…', minHeight = 72 }: { task: Task; placeholder?: string; minHeight?: number }) {
   const { value, setValue, flush } = useDraft(task.notes, (v) => void updateTask(task.id, { notes: v }));
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.max(el.scrollHeight, 72)}px`;
-  }, [value]);
+    el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`;
+  }, [value, minHeight]);
   return (
     <textarea
       ref={ref}
       className="notes"
       value={value}
-      placeholder="Add notes…"
+      placeholder={placeholder}
       onChange={(e) => setValue(e.target.value)}
       onBlur={flush}
-      aria-label="Notes"
+      aria-label={isNote(task) ? 'Note text' : 'Notes'}
     />
   );
 }
@@ -486,5 +490,71 @@ function SubtaskTitle({ sub }: { sub: Task }) {
       }}
       aria-label="Subtask title"
     />
+  );
+}
+
+/**
+ * Where the item lives: Location (Local / Cloud / Shared with me), then a
+ * folder in that place, then a list in that folder. Picking the list moves it.
+ */
+function PlaceEditor({ task, lists, folders }: { task: Task; lists: List[]; folders: Folder[] }) {
+  const current = lists.find((l) => l.id === task.listId);
+  const [location, setLocation] = useState<Location>(current ? locationOf(current) : 'local');
+  const [folderId, setFolderId] = useState<string>(current?.folderId ?? '');
+
+  const placeFolders = folders.filter((f) => locationOf(f) === location);
+  const placeLists = lists.filter((l) => locationOf(l) === location && (l.folderId ?? '') === folderId);
+  const inChoice = placeLists.some((l) => l.id === task.listId);
+
+  return (
+    <div className="field place-editor">
+      <span className="field-label">
+        <MoveIcon size={16} /> Move to
+      </span>
+      <div className="place-grid">
+        <label className="place-cell">
+          <span className="place-label">Location</span>
+          <select
+            value={location}
+            onChange={(e) => {
+              setLocation(e.target.value as Location);
+              setFolderId('');
+            }}
+          >
+            {LOCATIONS.map((l) => (
+              <option key={l.id} value={l.id} disabled={l.id !== 'local' && !CLOUD_READY}>
+                {l.label}
+                {l.id !== 'local' && !CLOUD_READY ? ' (sign-in coming soon)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="place-cell">
+          <span className="place-label">Folder</span>
+          <select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+            <option value="">No folder</option>
+            {placeFolders.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="place-cell wide">
+          <span className="place-label">List</span>
+          <select
+            value={inChoice ? task.listId : ''}
+            onChange={(e) => e.target.value && void updateTask(task.id, { listId: e.target.value })}
+          >
+            {!inChoice && <option value="">{placeLists.length ? 'Choose a list…' : 'No lists here yet'}</option>}
+            {placeLists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
   );
 }

@@ -19,9 +19,11 @@ export function Dialogs({ folders, lists, taskCount, habitCount, sessionCount }:
   if (!dialog) return null;
   switch (dialog.kind) {
     case 'folder':
-      return <FolderDialog folder={folders.find((f) => f.id === dialog.folderId)} />;
+      return <FolderDialog folder={folders.find((f) => f.id === dialog.folderId)} location={dialog.location} />;
     case 'list':
-      return <ListDialog list={lists.find((l) => l.id === dialog.listId)} folders={folders} defaultFolderId={dialog.folderId} />;
+      return (
+        <ListDialog list={lists.find((l) => l.id === dialog.listId)} folders={folders} defaultFolderId={dialog.folderId} location={dialog.location} />
+      );
     case 'tag':
       return <TagDialog tag={dialog.tag} />;
     case 'settings':

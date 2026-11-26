@@ -1,3 +1,4 @@
+import type { Location } from '../db/types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 export type View =
@@ -16,8 +17,8 @@ export type SortBy = 'manual' | 'dueDate' | 'priority' | 'title';
 export type Theme = 'system' | 'light' | 'dark';
 
 export type Dialog =
-  | { kind: 'folder'; folderId?: string }
-  | { kind: 'list'; listId?: string; folderId?: string | null }
+  | { kind: 'folder'; folderId?: string; location?: Location }
+  | { kind: 'list'; listId?: string; folderId?: string | null; location?: Location }
   | { kind: 'tag'; tag: string }
   | { kind: 'settings' }
   | { kind: 'confirm'; title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void | Promise<void> }

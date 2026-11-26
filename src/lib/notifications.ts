@@ -32,6 +32,8 @@ const SNOOZE_IDS: [number, number] = [20000, 20999];
 const TEST_REMINDER_ID = 21000;
 const ACTION_TASK = 'TASK_REMINDER';
 const ACTION_HABIT = 'HABIT_REMINDER';
+/** A note's reminder: nothing to mark done, so Snooze only. */
+const ACTION_NOTE = 'NOTE_REMINDER';
 export const HABIT_CHECK_IN_ACTION_ID = 'checkIn';
 /** Buttons get background versions for at most this many upcoming notifications per kind (the app tops them up when it opens). */
 const MAX_BUTTON_FIXES = 40;
@@ -119,6 +121,7 @@ function ensureChannels(): Promise<void> {
             { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min`, foreground: true },
           ],
         },
+        { id: ACTION_NOTE, actions: [{ id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min`, foreground: true }] },
         { id: ACTION_HABIT, actions: [{ id: HABIT_CHECK_IN_ACTION_ID, title: 'Check in', foreground: true }] },
         {
           id: ACTION_TO_BREAK,
@@ -194,6 +197,12 @@ const TASK_BUTTONS: ButtonFix['actions'] = [
   { id: TASK_DONE_ACTION_ID, title: 'Mark done' },
   { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min` },
 ];
+
+const NOTE_BUTTONS: ButtonFix['actions'] = [{ id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min` }];
+
+function buttonsFor(n: LocalNotificationSchema): ButtonFix['actions'] {
+  return n.actionTypeId === ACTION_NOTE ? NOTE_BUTTONS : TASK_BUTTONS;
+}
 
 function focusButtons(to: 'focus' | 'break' | null): ButtonFix['actions'] {
   if (to === null) return [{ id: CONFIRM_ACTION_ID, title: 'Rate session', open: true }];
@@ -392,8 +401,15 @@ function taskNotification(task: Task, id: number, at: Date, snoozed: boolean): L
   return {
     id,
     title: task.title,
-    body: snoozed ? `Snoozed reminder · due ${when}` : task.dueTime ? `Due ${when}` : `Due today`,
-    actionTypeId: ACTION_TASK,
+    body:
+      task.kind === 'note' && task.notes.trim()
+        ? task.notes.trim().slice(0, 200)
+        : snoozed
+          ? `Snoozed reminder · due ${when}`
+          : task.dueTime
+            ? `Due ${when}`
+            : `Due today`,
+    actionTypeId: task.kind === 'note' ? ACTION_NOTE : ACTION_TASK,
     channelId: TASK_CHANNEL,
     schedule: { at, allowWhileIdle: true },
     autoCancel: true,
@@ -422,7 +438,7 @@ export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
       isExactNotification: exact,
     }));
     await LocalNotifications.schedule({ notifications });
-    await setButtonFixes('task', notifications.map((n) => fixFor(n, TASK_BUTTONS)));
+    await setButtonFixes('task', notifications.map((n) => fixFor(n, buttonsFor(n))));
   });
 }
 
@@ -446,7 +462,7 @@ export function snoozeTaskReminder(task: Task): Promise<unknown> {
     const at = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
     const n = { ...taskNotification(task, id, at, true), isExactNotification: exact };
     await LocalNotifications.schedule({ notifications: [n] });
-    await setButtonFixes('snooze', [fixFor(n, TASK_BUTTONS)]);
+    await setButtonFixes('snooze', [fixFor(n, buttonsFor(n))]);
   });
 }
 

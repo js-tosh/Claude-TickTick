@@ -33,7 +33,7 @@ export function MatrixTab({ tasks, lists, folders, inbox }: Props) {
     const m = new Map<Priority, { open: Task[]; done: Task[] }>();
     for (const q of QUADRANTS) m.set(q.priority, { open: [], done: [] });
     for (const t of tasks) {
-      if (t.parentId) continue;
+      if (t.parentId || t.kind === 'note') continue; // notes have nothing to tick off
       const bucket = m.get(t.priority) ?? m.get(0)!;
       (t.status === 'open' ? bucket.open : bucket.done).push(t);
     }

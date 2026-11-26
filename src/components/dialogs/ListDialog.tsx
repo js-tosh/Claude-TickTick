@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createList, updateList } from '../../db/repo';
-import { LIST_COLORS, type Folder, type List } from '../../db/types';
+import { LIST_COLORS, locationOf, type Folder, type List, type Location } from '../../db/types';
 import { useUI } from '../../state/ui';
 import { Modal } from '../Modal';
 
@@ -8,9 +8,14 @@ interface Props {
   list?: List;
   folders: Folder[];
   defaultFolderId?: string | null;
+  /** Where a new list goes (an existing list keeps its own). */
+  location?: Location;
 }
 
-export function ListDialog({ list, folders, defaultFolderId }: Props) {
+export function ListDialog({ list, folders: allFolders, defaultFolderId, location: newLocation = 'local' }: Props) {
+  const location = list ? locationOf(list) : newLocation;
+  // Only folders in the same place: a local list can't sit in a cloud folder.
+  const folders = allFolders.filter((f) => locationOf(f) === location);
   const { closeDialog, setView } = useUI();
   const [name, setName] = useState(list?.name ?? '');
   const [folderId, setFolderId] = useState<string>(list?.folderId ?? defaultFolderId ?? '');
@@ -24,7 +29,7 @@ export function ListDialog({ list, folders, defaultFolderId }: Props) {
       if (list) {
         await updateList(list.id, { name: name.trim(), folderId: folderId || null, color });
       } else {
-        const created = await createList(name, folderId || null, color);
+        const created = await createList(name, folderId || null, color, location);
         setView({ kind: 'list', listId: created.id });
       }
       closeDialog();

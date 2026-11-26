@@ -66,7 +66,7 @@ export function useCounts(tasks: Task[] | undefined, inboxId: string | undefined
     const weekEnd = addDaysKey(today, 6);
     const counts: Counts = { inbox: 0, today: 0, week: 0, all: 0, perList: new Map() };
     for (const t of tasks ?? []) {
-      if (t.status !== 'open' || t.parentId) continue;
+      if (t.status !== 'open' || t.parentId || t.kind === 'note') continue;
       counts.all++;
       counts.perList.set(t.listId, (counts.perList.get(t.listId) ?? 0) + 1);
       if (t.listId === inboxId) counts.inbox++;

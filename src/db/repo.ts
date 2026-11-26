@@ -1,5 +1,5 @@
 import { db } from './db';
-import { DEFAULT_PRIORITY, type Folder, type List, type Priority, type Repeat, type Task } from './types';
+import { DEFAULT_PRIORITY, type Folder, type ItemKind, type List, type Location, type Priority, type Repeat, type Task } from './types';
 import { newId } from '../lib/ids';
 import { nextOccurrence } from '../lib/dates';
 import { clearDeliveredTaskReminders } from '../lib/notifications';
@@ -36,11 +36,12 @@ export async function getInbox(): Promise<List> {
 // Folders
 // ---------------------------------------------------------------------------
 
-export async function createFolder(name: string): Promise<Folder> {
+export async function createFolder(name: string, location: Location = 'local'): Promise<Folder> {
   const last = await db.folders.orderBy('sortOrder').last();
   const folder: Folder = {
     id: newId(),
     name: name.trim() || 'Untitled folder',
+    location,
     sortOrder: (last?.sortOrder ?? 0) + 1,
     collapsed: false,
     createdAt: now(),
@@ -74,12 +75,20 @@ export async function deleteFolder(id: string, deleteLists = false) {
 // Lists
 // ---------------------------------------------------------------------------
 
-export async function createList(name: string, folderId: string | null = null, color: string | null = null): Promise<List> {
+export async function createList(
+  name: string,
+  folderId: string | null = null,
+  color: string | null = null,
+  location: Location = 'local',
+): Promise<List> {
   const last = await db.lists.orderBy('sortOrder').last();
+  // A list in a folder lives where the folder lives.
+  const folder = folderId ? await db.folders.get(folderId) : undefined;
   const list: List = {
     id: newId(),
     name: name.trim() || 'Untitled list',
     folderId,
+    location: folder?.location ?? location,
     color,
     sortOrder: (last?.sortOrder ?? 0) + 1,
     isInbox: false,
@@ -116,6 +125,7 @@ export interface NewTaskInput {
   listId: string;
   title: string;
   parentId?: string | null;
+  kind?: ItemKind;
   notes?: string;
   dueDate?: string | null;
   dueTime?: string | null;
@@ -141,7 +151,8 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
     id: newId(),
     listId: input.listId,
     parentId: input.parentId ?? null,
-    title: input.title.trim() || 'Untitled task',
+    kind: input.kind ?? 'task',
+    title: input.title.trim() || (input.kind === 'note' ? 'Untitled note' : 'Untitled task'),
     notes: input.notes ?? '',
     status: 'open',
     completedAt: null,
@@ -163,7 +174,7 @@ export async function createTask(input: NewTaskInput): Promise<Task> {
 export type TaskPatch = Partial<
   Pick<
     Task,
-    'title' | 'notes' | 'dueDate' | 'dueTime' | 'priority' | 'tags' | 'repeat' | 'listId' | 'sortOrder' | 'parentId' | 'reminderMinutes' | 'reminderTime'
+    'title' | 'notes' | 'kind' | 'dueDate' | 'dueTime' | 'priority' | 'tags' | 'repeat' | 'listId' | 'sortOrder' | 'parentId' | 'reminderMinutes' | 'reminderTime'
   >
 >;
 
@@ -171,6 +182,8 @@ export async function updateTask(id: string, patch: TaskPatch) {
   const clean: TaskPatch & { updatedAt: number } = { ...patch, updatedAt: now() };
   if (clean.tags) clean.tags = normalizeTags(clean.tags);
   if (clean.dueDate === null) clean.dueTime = null;
+  // A note has nothing to tick off or repeat.
+  if (clean.kind === 'note') Object.assign(clean, { status: 'open', completedAt: null, repeat: 'none' });
   await db.transaction('rw', db.tasks, async () => {
     await db.tasks.update(id, clean);
     // Moving a parent task to another list moves its subtasks too.
@@ -187,7 +200,7 @@ export async function updateTask(id: string, patch: TaskPatch) {
 export async function setTaskDone(id: string, done: boolean): Promise<void> {
   await db.transaction('rw', db.tasks, async () => {
     const task = await db.tasks.get(id);
-    if (!task) return;
+    if (!task || task.kind === 'note') return;
     if (!done) {
       await db.tasks.update(id, { status: 'open', completedAt: null, updatedAt: now() });
       return;

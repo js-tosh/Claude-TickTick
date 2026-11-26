@@ -3044,3 +3044,81 @@ button.session-main:hover {
 .bg-status.bad {
   color: var(--danger);
 }
+
+/* ===========================================================================
+   Lists in three places (Local / Cloud / Shared with me), notes, Move to
+=========================================================================== */
+.location-section + .location-section {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.location-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.location-sub {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+}
+.note-badge {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 2px;
+  color: var(--accent);
+}
+.note-badge.large {
+  width: 28px;
+  height: 28px;
+}
+.note-snippet {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-body .notes {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.place-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.place-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.place-cell.wide {
+  grid-column: 1 / -1;
+}
+.place-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.sheet-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.sheet-top .segmented {
+  margin-bottom: 0;
+}
+.segmented.small button {
+  padding: 4px 12px;
+  font-size: 13px;
+}

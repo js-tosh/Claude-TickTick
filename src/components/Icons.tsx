@@ -323,3 +323,11 @@ export const ExpandIcon = (p: P) => (
     <path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7" />
   </svg>
 );
+
+/** A page with lines: a note. */
+export const NoteIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M15 3v4h4M9 12h7M9 16h7" />
+  </svg>
+);

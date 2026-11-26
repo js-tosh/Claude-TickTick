@@ -8,11 +8,44 @@ export type Priority = 0 | 1 | 3 | 5;
 
 export type TaskStatus = 'open' | 'done';
 
+/**
+ * Where a folder or list lives. Local: only on this device. Cloud: in the
+ * user's cloud account (synced across devices, can be shared). Shared: owned
+ * by someone else who shared it with this user. Missing = local.
+ */
+export type Location = 'local' | 'cloud' | 'shared';
+
+export const LOCATIONS: { id: Location; label: string; hint: string }[] = [
+  { id: 'local', label: 'Local', hint: 'On this phone only' },
+  { id: 'cloud', label: 'Cloud', hint: 'Synced to your account, can be shared' },
+  { id: 'shared', label: 'Shared with me', hint: "Other people's lists" },
+];
+
+export function locationOf(x: { location?: Location }): Location {
+  return x.location ?? 'local';
+}
+
+/**
+ * Items in a list: a task (with a checkbox) or a note (a title and a page of
+ * text, with the same dates and reminders, but nothing to tick off). Missing = task.
+ */
+export type ItemKind = 'task' | 'note';
+
+export const ITEM_KINDS: { id: ItemKind; label: string }[] = [
+  { id: 'task', label: 'Task' },
+  { id: 'note', label: 'Note' },
+];
+
+export function isNote(t: { kind?: ItemKind }): boolean {
+  return t.kind === 'note';
+}
+
 export type Repeat = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly';
 
 export interface Folder {
   id: string;
   name: string;
+  location?: Location;
   sortOrder: number;
   collapsed: boolean;
   createdAt: number;
@@ -24,6 +57,8 @@ export interface List {
   name: string;
   /** null = top level (not inside a folder) */
   folderId: string | null;
+  /** Always the same as its folder's. Missing = local. */
+  location?: Location;
   /** Hex color used for the list dot; null = default. */
   color: string | null;
   sortOrder: number;
@@ -38,7 +73,10 @@ export interface Task {
   listId: string;
   /** null = top-level task; otherwise this is a subtask of parentId. */
   parentId: string | null;
+  /** Task or note. Missing = task. */
+  kind?: ItemKind;
   title: string;
+  /** A task's notes, or a note's text. */
   notes: string;
   status: TaskStatus;
   completedAt: number | null;

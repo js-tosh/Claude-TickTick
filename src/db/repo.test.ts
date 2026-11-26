@@ -178,3 +178,40 @@ describe('backup', () => {
     expect(lines[1]).toContain('"Say ""hi"", then leave"');
   });
 });
+
+describe('places and notes', () => {
+  it('a list made in a folder lives where the folder lives', async () => {
+    const f = await createFolder('Trips', 'cloud');
+    const inFolder = await createList('Bogota', f.id);
+    const local = await createList('Groceries');
+    expect(inFolder.location).toBe('cloud');
+    expect(local.location).toBe('local');
+  });
+
+  it('a note has nothing to tick off or repeat', async () => {
+    const l = await createList('Trips');
+    const n = await createTask({ listId: l.id, kind: 'note', title: 'Trip to Bogota', notes: 'Loved Usaquén' });
+    expect(n.kind).toBe('note');
+    await setTaskDone(n.id, true);
+    expect((await db.tasks.get(n.id))?.status).toBe('open');
+
+    const t = await createTask({ listId: l.id, title: 'Book hotel', dueDate: '2026-12-01', repeat: 'weekly' });
+    await setTaskDone(t.id, true);
+    const done = await db.tasks.get(t.id);
+    expect(done?.status).toBe('done');
+    await updateTask(t.id, { kind: 'note' });
+    expect(await db.tasks.get(t.id)).toMatchObject({ kind: 'note', status: 'open', completedAt: null, repeat: 'none' });
+  });
+
+  it('backups keep notes and where lists live', async () => {
+    const f = await createFolder('Trips', 'cloud');
+    const l = await createList('Bogota', f.id);
+    await createTask({ listId: l.id, kind: 'note', title: 'Trip to Bogota' });
+    const json = await exportJSON();
+    await clearAll();
+    await importJSON(json, 'replace');
+    expect((await db.folders.toArray())[0].location).toBe('cloud');
+    expect((await db.lists.filter((x) => x.name === 'Bogota').first())?.location).toBe('cloud');
+    expect((await db.tasks.toArray())[0].kind).toBe('note');
+  });
+});
