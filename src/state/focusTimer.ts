@@ -15,7 +15,8 @@ import { goalAmount } from '../lib/habitStats';
 import { clearDeliveredHabitReminders } from '../lib/notifications';
 import { getSettings } from './settings';
 import { newId } from '../lib/ids';
-import { cancelFocusAlarms, notificationPermission, scheduleFocusAlarm } from '../lib/notifications';
+import { cancelFocusAlarms, focusChannelId, notificationPermission, scheduleFocusAlarm } from '../lib/notifications';
+import { FocusAlarm, type FocusStatus } from '../lib/focusAlarmPlugin';
 import { FOCUS_MIN, NO_BREAK_STATS } from '../lib/pomodoro';
 import { isNative } from '../lib/platform';
 import {
@@ -25,6 +26,7 @@ import {
   nextTransition,
   pauseTimer,
   phaseAt,
+  phaseRemaining,
   resumeTimer,
   skipBreak,
   skipPhase,
@@ -86,6 +88,7 @@ function update(next: Partial<FocusSnapshot>) {
     /* storage full or blocked: the timer still works for this run */
   }
   for (const l of listeners) l();
+  pushStatus(snap.timer);
   const running = !!snap.timer && snap.timer.pausedAt === null && !snap.timer.awaitingConfirm;
   if (running && !interval) interval = setInterval(tick, 1000);
   if (!running && interval) {
@@ -125,6 +128,30 @@ function syncAlarms(timer: TimerState | null) {
   void scheduleFocusAlarm(next && { at: next.at, to: next.to }, timer.activity, { id: timer.id, phases: upcomingPhases(timer) });
 }
 
+/**
+ * Keep the "timer running" notification (start time, countdown, Pause / End;
+ * mirrored to a watch) in step with the timer. Sent only when it changes.
+ */
+let lastStatusKey = '';
+function pushStatus(timer: TimerState | null) {
+  if (!isNative) return;
+  const status = timer ? focusStatus(timer, Date.now()) : null;
+  const key = JSON.stringify(status);
+  if (key === lastStatusKey) return;
+  lastStatusKey = key;
+  const plan = timer ? { timerId: timer.id, activity: timer.activity, channelId: focusChannelId(), phases: upcomingPhases(timer) } : undefined;
+  void FocusAlarm.setFocusStatus({ status, plan }).catch(() => undefined);
+}
+
+function focusStatus(t: TimerState, now: number): FocusStatus {
+  const phase = phaseAt(t, t.phaseIndex);
+  const base = { timerId: t.id, activity: t.activity, startedAt: t.startedAt, phase: phase?.kind ?? 'focus' } as const;
+  if (t.awaitingConfirm) return { ...base, state: 'waiting', to: null, waitingFor: phase?.kind ?? 'focus' };
+  const to = phaseAt(t, t.phaseIndex + 1)?.kind ?? null;
+  if (t.pausedAt !== null) return { ...base, state: 'paused', remainingMs: phaseRemaining(t, now), to };
+  return { ...base, state: 'running', endsAt: t.phaseStart + (phase?.ms ?? 0), to };
+}
+
 /** The phases after the running one (up to 16), so a watch button can start the next while the app is closed. */
 function upcomingPhases(timer: TimerState): { kind: 'focus' | 'break'; ms: number }[] {
   const out: { kind: 'focus' | 'break'; ms: number }[] = [];
@@ -147,12 +174,19 @@ export async function applyFocusButtonPresses(presses: { at: number; actionId: s
   for (const p of [...presses].sort((a, b) => a.at - b.at)) {
     if (!timer || (p.timerId && p.timerId !== timer.id)) continue;
     const r = advance(timer, p.at);
-    if (r.finishedAt !== null) {
-      await finalize(r.state, r.finishedAt);
+    if (r.finishedAt !== null || p.actionId === 'end') {
+      await finalize(r.state, r.finishedAt ?? p.at);
       return;
     }
     timer = r.state;
-    const next = p.actionId === 'skipBreak' ? skipBreak(timer, p.at) : confirmPhase(timer, p.at);
+    const next =
+      p.actionId === 'skipBreak'
+        ? skipBreak(timer, p.at)
+        : p.actionId === 'pause'
+          ? pauseTimer(timer, p.at)
+          : p.actionId === 'resume'
+            ? resumeTimer(timer, p.at)
+            : confirmPhase(timer, p.at);
     if (next !== timer) changed = true;
     timer = next;
   }

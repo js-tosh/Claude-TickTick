@@ -109,10 +109,11 @@ public class NotificationActions extends BroadcastReceiver {
 
     private void fix(Context c, Intent intent) throws Exception {
         int id = intent.getIntExtra("id", -1);
+        JSONObject extra = new JSONObject(intent.getStringExtra("extra"));
+        if ("focus".equals(extra.optString("kind"))) markWaiting(c);
         StatusBarNotification sbn = active(c, id);
         if (sbn == null) return;
         JSONArray actions = new JSONArray(intent.getStringExtra("actions"));
-        JSONObject extra = new JSONObject(intent.getStringExtra("extra"));
         Notification.Builder b = Notification.Builder.recoverBuilder(c, sbn.getNotification());
         b.setActions(buttons(c, id, actions, extra));
         b.setOnlyAlertOnce(true); // a quiet update: it already rang
@@ -156,6 +157,10 @@ public class NotificationActions extends BroadcastReceiver {
         long now = System.currentTimeMillis();
         JSONObject item = new JSONObject().put("at", now).put("actionId", actionId).put("kind", kind);
 
+        if ("focusStatus".equals(kind)) {
+            statusButton(c, actionId, now);
+            return;
+        }
         if ("task".equals(kind) && "snooze".equals(actionId)) {
             snooze(c, id, extra.optString("taskId"));
             return; // nothing for the app to do
@@ -249,21 +254,36 @@ public class NotificationActions extends BroadcastReceiver {
         if (n == null) return;
         n.when = System.currentTimeMillis();
         nm(c).notify(id, n);
+        if (id >= NATIVE_FOCUS_ID && id < NATIVE_FOCUS_ID + FOCUS_REPEATS) markWaiting(c);
     }
 
-    // ---- Focus timer: the next phase, started from a button ----------------
+    // ---- Focus timer ---------------------------------------------------------
+
+    /** The "timer running" notification: start time, countdown, Pause / Resume / End. */
+    static final int STATUS_ID = 22000;
+    static final String STATUS_CHANNEL = "focus-status";
+    private static final String FOCUS_STATUS = "focusStatus";
 
     /**
-     * The app stores the phases that follow the alarm that is showing, so a
-     * button can start the next one and schedule its alarm while the app is
-     * closed. The app re-plans everything the next time it runs.
+     * The app stores the phases that follow the running one, so a button can
+     * start the next one and schedule its alarm while the app is closed. The
+     * app re-plans everything the next time it runs.
      */
     static void setFocusPlan(Context c, String planJson) {
         prefs(c).edit().putString(FOCUS_PLAN, planJson).apply();
     }
 
+    private static JSONObject json(Context c, String key) {
+        try {
+            String raw = prefs(c).getString(key, null);
+            return raw == null ? null : new JSONObject(raw);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Stop alarms started from a button (the app is about to schedule its own). */
     static void clearFocus(Context c) {
-        prefs(c).edit().remove(FOCUS_PLAN).apply();
         for (int k = 0; k < FOCUS_REPEATS; k++) {
             cancelPost(c, NATIVE_FOCUS_ID + k);
             nm(c).cancel(NATIVE_FOCUS_ID + k);
@@ -271,14 +291,17 @@ public class NotificationActions extends BroadcastReceiver {
         cancelFixes(c, "focus");
     }
 
-    private static void startNextFocusPhase(Context c, boolean skipBreak, long now) throws Exception {
-        String raw = prefs(c).getString(FOCUS_PLAN, null);
-        // Stop whatever focus alarms were pending: the plugin's and our own.
+    private static void stopAllFocusAlarms(Context c) {
         cancelPluginFocusAlarms(c);
         FocusRingReceiver.cancel(c);
         clearFocus(c);
-        if (raw == null) return;
-        JSONObject plan = new JSONObject(raw);
+    }
+
+    private static void startNextFocusPhase(Context c, boolean skipBreak, long now) throws Exception {
+        JSONObject plan = json(c, FOCUS_PLAN);
+        // Stop whatever focus alarms were pending: the plugin's and our own.
+        stopAllFocusAlarms(c);
+        if (plan == null) return;
         JSONArray phases = plan.getJSONArray("phases");
         int start = skipBreak ? 1 : 0;
         if (skipBreak && (phases.length() == 0 || !"break".equals(phases.getJSONObject(0).optString("kind")))) return;
@@ -287,11 +310,27 @@ public class NotificationActions extends BroadcastReceiver {
         JSONObject after = phases.length() > start + 1 ? phases.getJSONObject(start + 1) : null;
         String to = after == null ? null : after.optString("kind");
         long at = now + phase.getLong("ms");
+        scheduleChain(c, plan, at, to);
+
+        // What follows this phase, for the next button press.
+        JSONArray rest = new JSONArray();
+        for (int k = start + 1; k < phases.length(); k++) rest.put(phases.get(k));
+        plan.put("phases", rest);
+        setFocusPlan(c, plan.toString());
+
+        JSONObject st = json(c, FOCUS_STATUS);
+        if (st != null) {
+            st.put("state", "running").put("phase", phase.optString("kind")).put("endsAt", at).put("to", to == null ? JSONObject.NULL : to);
+            st.remove("remainingMs");
+            showStatus(c, st);
+        }
+    }
+
+    /** The phase-end alarm at `at`, its repeats every 5 minutes and its 3 rings. */
+    private static void scheduleChain(Context c, JSONObject plan, long at, String to) throws Exception {
         String activity = plan.optString("activity", "Focus");
         String channelId = plan.optString("channelId");
-        String timerId = plan.optString("timerId");
-
-        JSONObject extra = new JSONObject().put("kind", "focus").put("timerId", timerId).put("to", to == null ? JSONObject.NULL : to);
+        JSONObject extra = new JSONObject().put("kind", "focus").put("timerId", plan.optString("timerId")).put("to", to == null ? JSONObject.NULL : to);
         long[] rings = new long[FOCUS_REPEATS * (RINGS - 1)];
         for (int k = 0; k < FOCUS_REPEATS; k++) {
             int id = NATIVE_FOCUS_ID + k;
@@ -313,12 +352,120 @@ public class NotificationActions extends BroadcastReceiver {
             for (int r = 1; r < RINGS; r++) rings[k * (RINGS - 1) + r - 1] = at + k * REPEAT_MS + r * RING_GAP_MS;
         }
         FocusRingReceiver.schedule(c, rings);
+    }
 
-        // What follows this phase, for the next button press.
-        JSONArray rest = new JSONArray();
-        for (int k = start + 1; k < phases.length(); k++) rest.put(phases.get(k));
-        plan.put("phases", rest);
-        setFocusPlan(c, plan.toString());
+    /** Pause / Resume / End pressed on the "timer running" notification. */
+    private static void statusButton(Context c, String actionId, long now) throws Exception {
+        JSONObject st = json(c, FOCUS_STATUS);
+        if (st == null) {
+            nm(c).cancel(STATUS_ID);
+            return;
+        }
+        if ("pause".equals(actionId)) {
+            if (!"running".equals(st.optString("state"))) return;
+            stopAllFocusAlarms(c);
+            st.put("state", "paused").put("remainingMs", Math.max(0, st.optLong("endsAt") - now));
+            showStatus(c, st);
+        } else if ("resume".equals(actionId)) {
+            if (!"paused".equals(st.optString("state"))) return;
+            long endsAt = now + st.optLong("remainingMs");
+            JSONObject plan = json(c, FOCUS_PLAN);
+            String to = st.isNull("to") ? null : st.optString("to");
+            if (plan != null) scheduleChain(c, plan, endsAt, to);
+            st.put("state", "running").put("endsAt", endsAt);
+            st.remove("remainingMs");
+            showStatus(c, st);
+        } else if ("end".equals(actionId)) {
+            stopAllFocusAlarms(c);
+            prefs(c).edit().remove(FOCUS_STATUS).remove(FOCUS_PLAN).apply();
+            nm(c).cancel(STATUS_ID);
+        } else {
+            return;
+        }
+        enqueue(c, new JSONObject().put("at", now).put("kind", "focus").put("actionId", actionId).put("timerId", st.optString("timerId")));
+        FocusAlarmPlugin.emitQueued();
+    }
+
+    /** From the app: the timer's state (null when no session is running). */
+    static void setFocusStatus(Context c, JSONObject st) {
+        if (st == null) {
+            prefs(c).edit().remove(FOCUS_STATUS).remove(FOCUS_PLAN).apply();
+            nm(c).cancel(STATUS_ID);
+            return;
+        }
+        showStatus(c, st);
+    }
+
+    /** A phase just ended (its alarm appeared): the timer now waits for the user. */
+    private static void markWaiting(Context c) {
+        JSONObject st = json(c, FOCUS_STATUS);
+        if (st == null || !"running".equals(st.optString("state"))) return;
+        if (st.optLong("endsAt") > System.currentTimeMillis() + 5_000) return; // not this phase's alarm
+        try {
+            if (st.isNull("to")) {
+                setFocusStatus(c, null); // the session is over; the alarm asks for the rating
+                return;
+            }
+            st.put("state", "waiting").put("waitingFor", st.optString("to"));
+            showStatus(c, st);
+        } catch (Exception ignored) {}
+    }
+
+    private static void showStatus(Context c, JSONObject st) {
+        prefs(c).edit().putString(FOCUS_STATUS, st.toString()).apply();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm(c).getNotificationChannel(STATUS_CHANNEL) == null) {
+                android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                    STATUS_CHANNEL, "Focus timer running", NotificationManager.IMPORTANCE_DEFAULT);
+                ch.setDescription("Shows the running focus session with Pause and End, also on a watch");
+                ch.setSound(null, null);
+                ch.enableVibration(false);
+                ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+                nm(c).createNotificationChannel(ch);
+            }
+            String activity = st.optString("activity", "Focus");
+            String state = st.optString("state");
+            boolean isBreak = "break".equals(st.optString("phase"));
+            String started = "Started " + time(c, st.optLong("startedAt"));
+            JSONObject extra = new JSONObject().put("kind", "focusStatus");
+            JSONArray actions = new JSONArray();
+            String title;
+            String text;
+            Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(c, STATUS_CHANNEL)
+                : new Notification.Builder(c);
+            if ("running".equals(state)) {
+                long endsAt = st.optLong("endsAt");
+                title = (isBreak ? "On a break · " : "Focusing · ") + activity;
+                text = started + " · " + (isBreak ? "break" : "block") + " ends " + time(c, endsAt);
+                b.setWhen(endsAt).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true);
+                actions.put(new JSONObject().put("id", "pause").put("title", "Pause"));
+            } else if ("paused".equals(state)) {
+                long left = st.optLong("remainingMs") / 1000;
+                title = "Paused · " + activity;
+                text = started + " · " + (left / 60) + ":" + String.format(java.util.Locale.US, "%02d", left % 60) + " left in this " + (isBreak ? "break" : "block");
+                b.setShowWhen(false);
+                actions.put(new JSONObject().put("id", "resume").put("title", "Resume"));
+            } else {
+                title = ("break".equals(st.optString("waitingFor")) ? "Focus block done · " : "Break over · ") + activity;
+                text = started + " · waiting for you to continue";
+                b.setShowWhen(false);
+            }
+            actions.put(new JSONObject().put("id", "end").put("title", "End"));
+            b.setSmallIcon(R.drawable.ic_stat_tasks)
+                .setColor(Color.parseColor("#4772fa"))
+                .setContentTitle(title)
+                .setContentText(text)
+                .setOnlyAlertOnce(true)
+                .setAutoCancel(false)
+                .setContentIntent(openApp(c, STATUS_ID))
+                .setActions(buttons(c, STATUS_ID, actions, extra));
+            nm(c).notify(STATUS_ID, b.build());
+        } catch (Exception ignored) {}
+    }
+
+    private static String time(Context c, long ms) {
+        return android.text.format.DateFormat.getTimeFormat(c).format(new java.util.Date(ms));
     }
 
     private static JSONArray focusButtons(String to) throws Exception {

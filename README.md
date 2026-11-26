@@ -44,7 +44,10 @@ Notifications show on a paired watch (e.g. Pixel Watch) the way they show on
 the phone, and their buttons work from the wrist without opening the app:
 **Mark done** and **Snooze** on task reminders, **Check in** on habit
 reminders, and **Start break**, **Skip break** and **Start focus** on focus
-alarms (the next alarm is set up right away). The app catches up with what was
+alarms (the next alarm is set up right away). While a focus session runs,
+a **timer running** notification shows when it started and when the block or
+break ends, with **Pause** / **Resume** and **End**, so it can be stopped from
+the watch at any moment. The app catches up with what was
 pressed the next time it opens. If nothing shows on the watch, check the app is
 allowed under Notifications in the watch's companion app.
 

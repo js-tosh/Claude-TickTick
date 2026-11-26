@@ -251,6 +251,16 @@ public class FocusAlarmPlugin extends Plugin {
         call.resolve();
     }
 
+    /** The running session for the "timer running" notification; status null removes it. */
+    @PluginMethod
+    public void setFocusStatus(PluginCall call) {
+        JSObject status = call.getObject("status");
+        JSObject plan = call.getObject("plan");
+        if (status != null && plan != null) NotificationActions.setFocusPlan(getContext(), plan.toString());
+        NotificationActions.setFocusStatus(getContext(), status);
+        call.resolve();
+    }
+
     /** Changes made from notification buttons since the app last looked (and empties the list). */
     @PluginMethod
     public void takeQueuedActions(PluginCall call) {

@@ -30,6 +30,8 @@ export interface FocusAlarmPlugin {
   setButtonFixes(options: { group: ButtonFixGroup; items: ButtonFix[] }): Promise<void>;
   /** The focus phases after the showing alarm, so "Start break" on the watch can schedule the next alarm. */
   setFocusPlan(options: { plan: FocusPlan | null }): Promise<void>;
+  /** The "timer running" notification (Pause / Resume / End); null removes it. */
+  setFocusStatus(options: { status: FocusStatus | null; plan?: FocusPlan }): Promise<void>;
   /** Changes made from notification buttons since last asked; the list is emptied. */
   takeQueuedActions(): Promise<{ actions: QueuedAction[] }>;
   cancelTaskSnooze(options: { taskId: string }): Promise<void>;
@@ -53,6 +55,23 @@ export interface FocusPlan {
   channelId: string;
   /** The phases after the one that is running, in order. */
   phases: { kind: 'focus' | 'break'; ms: number }[];
+}
+
+export interface FocusStatus {
+  timerId: string;
+  activity: string;
+  /** When the session started. */
+  startedAt: number;
+  phase: 'focus' | 'break';
+  state: 'running' | 'paused' | 'waiting';
+  /** Running: when the phase ends. */
+  endsAt?: number;
+  /** Paused: time left in the phase. */
+  remainingMs?: number;
+  /** What follows the running phase (null: the session ends). */
+  to: 'focus' | 'break' | null;
+  /** Waiting: the phase waiting to be started. */
+  waitingFor?: 'focus' | 'break';
 }
 
 /** A notification button pressed while the app may not have been running. */
@@ -80,6 +99,7 @@ const webStub: FocusAlarmPlugin = {
   openAppSettings: async () => undefined,
   setButtonFixes: async () => undefined,
   setFocusPlan: async () => undefined,
+  setFocusStatus: async () => undefined,
   takeQueuedActions: async () => ({ actions: [] }),
   cancelTaskSnooze: async () => undefined,
   addListener: async () => ({ remove: async () => undefined }),
