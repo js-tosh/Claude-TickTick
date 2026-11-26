@@ -8,7 +8,7 @@ import { LocalNotifications, type LocalNotificationSchema } from '@capacitor/loc
 import type { Habit, Task } from '../db/types';
 import { planTaskReminders, TASK_HORIZON_DAYS } from './taskReminders';
 import { formatDueLabel } from './dates';
-import { FocusAlarm } from './focusAlarmPlugin';
+import { FocusAlarm, type ButtonFix, type ButtonFixGroup, type FocusPlan } from './focusAlarmPlugin';
 import { BREAK_MIN } from './pomodoro';
 import type { LogMap } from './habitStats';
 import { askUnrestrictedOnce } from './background';
@@ -31,6 +31,10 @@ const TASK_IDS: [number, number] = [10000, 19999];
 const SNOOZE_IDS: [number, number] = [20000, 20999];
 const TEST_REMINDER_ID = 21000;
 const ACTION_TASK = 'TASK_REMINDER';
+const ACTION_HABIT = 'HABIT_REMINDER';
+export const HABIT_CHECK_IN_ACTION_ID = 'checkIn';
+/** Buttons get background versions for at most this many upcoming notifications per kind (the app tops them up when it opens). */
+const MAX_BUTTON_FIXES = 40;
 export const TASK_DONE_ACTION_ID = 'done';
 export const TASK_SNOOZE_ACTION_ID = 'snooze';
 export const SNOOZE_MINUTES = 10;
@@ -115,6 +119,7 @@ function ensureChannels(): Promise<void> {
             { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min`, foreground: true },
           ],
         },
+        { id: ACTION_HABIT, actions: [{ id: HABIT_CHECK_IN_ACTION_ID, title: 'Check in', foreground: true }] },
         {
           id: ACTION_TO_BREAK,
           actions: [
@@ -182,6 +187,37 @@ function serial<T>(fn: () => Promise<T>): Promise<T | undefined> {
 }
 
 // ---------------------------------------------------------------------------
+// Buttons that work without opening the app (watch, lock screen)
+// ---------------------------------------------------------------------------
+
+const TASK_BUTTONS: ButtonFix['actions'] = [
+  { id: TASK_DONE_ACTION_ID, title: 'Mark done' },
+  { id: TASK_SNOOZE_ACTION_ID, title: `Snooze ${SNOOZE_MINUTES} min` },
+];
+
+function focusButtons(to: 'focus' | 'break' | null): ButtonFix['actions'] {
+  if (to === null) return [{ id: CONFIRM_ACTION_ID, title: 'Rate session', open: true }];
+  if (to === 'break') {
+    return [
+      { id: CONFIRM_ACTION_ID, title: 'Start break' },
+      { id: SKIP_BREAK_ACTION_ID, title: 'Skip break' },
+    ];
+  }
+  return [{ id: CONFIRM_ACTION_ID, title: 'Start focus' }];
+}
+
+function fixFor(n: LocalNotificationSchema, actions: ButtonFix['actions']): ButtonFix {
+  const at = n.schedule?.at instanceof Date ? n.schedule.at.getTime() : Date.now();
+  return { id: n.id, at, actions, extra: (n.extra ?? {}) as Record<string, unknown> };
+}
+
+/** The soonest notifications get background buttons; the app tops this up each time it opens. */
+async function setButtonFixes(group: ButtonFixGroup, items: ButtonFix[]): Promise<void> {
+  const soonest = [...items].sort((a, b) => a.at - b.at).slice(0, MAX_BUTTON_FIXES);
+  await FocusAlarm.setButtonFixes({ group, items: soonest }).catch(() => undefined);
+}
+
+// ---------------------------------------------------------------------------
 // Focus timer
 // ---------------------------------------------------------------------------
 
@@ -203,9 +239,10 @@ async function clearDeliveredInRange([min, max]: [number, number]): Promise<void
  * notification whose id it is asked to schedule again, so reusing ids would
  * kill an alarm that just rang.
  */
-let focusIdCycle = Math.floor(Date.now() / 1000) % 40;
+/** 39 blocks of 25 ids: 1000–1974. 1975–1999 belong to alarms started from a watch (NotificationActions.java). */
+let focusIdCycle = Math.floor(Date.now() / 1000) % 39;
 function nextFocusIdBase(): number {
-  focusIdCycle = (focusIdCycle + 1) % 40;
+  focusIdCycle = (focusIdCycle + 1) % 39;
   return FOCUS_IDS[0] + focusIdCycle * 25;
 }
 
@@ -240,7 +277,11 @@ function focusTexts(alarm: FocusAlarm, activity: string, repeat: number): { titl
  * again every FOCUS_REPEAT_MIN minutes until the next phase is confirmed
  * (confirming cancels the rest). Replaces any earlier focus alarms.
  */
-export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): Promise<unknown> {
+export function scheduleFocusAlarm(
+  alarm: FocusAlarm | null,
+  activity: string,
+  timer?: { id: string; phases: FocusPlan['phases'] },
+): Promise<unknown> {
   if (!isNative) return Promise.resolve();
   return serial(async () => {
     await ensureChannels();
@@ -264,10 +305,12 @@ export function scheduleFocusAlarm(alarm: FocusAlarm | null, activity: string): 
         autoCancel: true,
         smallIcon: SMALL_ICON,
         iconColor: ICON_COLOR,
-        extra: { kind: 'focus', to: alarm.to },
+        extra: { kind: 'focus', to: alarm.to, timerId: timer?.id ?? '' },
       };
     });
     await LocalNotifications.schedule({ notifications });
+    await setButtonFixes('focus', notifications.map((n) => fixFor(n, focusButtons(alarm.to))));
+    if (timer) await FocusAlarm.setFocusPlan({ plan: { timerId: timer.id, activity, channelId, phases: timer.phases } }).catch(() => undefined);
     await FocusAlarm.scheduleRings({ at: focusRingTimes(alarm.at) }).catch(() => undefined);
   });
 }
@@ -305,6 +348,7 @@ export function scheduleHabitReminders(habits: Habit[], logsByHabit: Map<string,
   return serial(async () => {
     await ensureChannels();
     await cancelPendingInRange(HABIT_IDS);
+    await setButtonFixes('habit', []);
     const plan = planHabitReminders(habits, logsByHabit, new Date(), HABIT_HORIZON_DAYS);
     if (!plan.length || (await notificationPermission(false)) !== 'granted') return;
     const exact = await exactAllowed();
@@ -320,9 +364,11 @@ export function scheduleHabitReminders(habits: Habit[], logsByHabit: Map<string,
       autoCancel: true,
       smallIcon: SMALL_ICON,
       iconColor: ICON_COLOR,
+      actionTypeId: ACTION_HABIT,
       extra: { kind: 'habit', habitId: p.habit.id, date: p.date },
     }));
     await LocalNotifications.schedule({ notifications });
+    await setButtonFixes('habit', notifications.map((n) => fixFor(n, [{ id: HABIT_CHECK_IN_ACTION_ID, title: 'Check in' }])));
   });
 }
 
@@ -367,6 +413,7 @@ export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
     await ensureChannels();
     await cancelPendingInRange(TASK_IDS);
     await cancelStaleSnoozes(tasks);
+    await setButtonFixes('task', []);
     const plan = planTaskReminders(tasks, new Date(), TASK_HORIZON_DAYS);
     if (!plan.length || (await notificationPermission(false)) !== 'granted') return;
     const exact = await exactAllowed();
@@ -375,6 +422,7 @@ export function scheduleTaskReminders(tasks: Task[]): Promise<unknown> {
       isExactNotification: exact,
     }));
     await LocalNotifications.schedule({ notifications });
+    await setButtonFixes('task', notifications.map((n) => fixFor(n, TASK_BUTTONS)));
   });
 }
 
@@ -396,7 +444,9 @@ export function snoozeTaskReminder(task: Task): Promise<unknown> {
     const exact = await exactAllowed();
     const id = SNOOZE_IDS[0] + (Math.floor(Date.now() / 1000) % (SNOOZE_IDS[1] - SNOOZE_IDS[0]));
     const at = new Date(Date.now() + SNOOZE_MINUTES * 60_000);
-    await LocalNotifications.schedule({ notifications: [{ ...taskNotification(task, id, at, true), isExactNotification: exact }] });
+    const n = { ...taskNotification(task, id, at, true), isExactNotification: exact };
+    await LocalNotifications.schedule({ notifications: [n] });
+    await setButtonFixes('snooze', [fixFor(n, TASK_BUTTONS)]);
   });
 }
 
@@ -430,6 +480,7 @@ export function sendTestReminder(): Promise<unknown> {
 export function clearDeliveredTaskReminders(taskId: string): Promise<unknown> {
   if (!isNative) return Promise.resolve();
   return serial(async () => {
+    await FocusAlarm.cancelTaskSnooze({ taskId }).catch(() => undefined);
     const { notifications } = await LocalNotifications.getDeliveredNotifications();
     const mine = notifications.filter((n) => n.extra?.taskId === taskId || n.data?.taskId === taskId);
     if (mine.length) await LocalNotifications.removeDeliveredNotifications({ notifications: mine });
@@ -445,12 +496,15 @@ export interface NotificationTap {
   /** 'tap' for the notification body, or a button's id. */
   actionId: string;
   taskId?: string;
+  habitId?: string;
+  date?: string;
 }
 
 export async function onNotificationTap(handler: (tap: NotificationTap) => void): Promise<() => void> {
   if (!isNative) return () => undefined;
   const sub = await LocalNotifications.addListener('localNotificationActionPerformed', (e) => {
-    handler({ kind: e.notification.extra?.kind, actionId: e.actionId, taskId: e.notification.extra?.taskId });
+    const x = e.notification.extra ?? {};
+    handler({ kind: x.kind, actionId: e.actionId, taskId: x.taskId, habitId: x.habitId, date: x.date });
   });
   return () => void sub.remove();
 }

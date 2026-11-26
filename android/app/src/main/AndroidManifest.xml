@@ -26,6 +26,8 @@
 
         <!-- Rings a showing focus alarm again a few seconds after it first rang. -->
         <receiver android:name=".FocusRingReceiver" android:exported="false" />
+        <!-- Notification buttons that work without opening the app (watch, lock screen). -->
+        <receiver android:name=".NotificationActions" android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

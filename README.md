@@ -38,6 +38,16 @@ allow that too, or Android may hold back reminders while the app is closed.
 **☰ → Settings & backup → Reminders** shows the status and can send a test
 reminder (close the app and wait a minute).
 
+### On a watch
+
+Notifications show on a paired watch (e.g. Pixel Watch) the way they show on
+the phone, and their buttons work from the wrist without opening the app:
+**Mark done** and **Snooze** on task reminders, **Check in** on habit
+reminders, and **Start break**, **Skip break** and **Start focus** on focus
+alarms (the next alarm is set up right away). The app catches up with what was
+pressed the next time it opens. If nothing shows on the watch, check the app is
+allowed under Notifications in the watch's companion app.
+
 ## Backups and moving data
 
 Open **Tasks tab → ☰ → Settings & backup**.

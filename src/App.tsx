@@ -13,6 +13,7 @@ import {
   onNotificationTap,
   scheduleHabitReminders,
   SKIP_BREAK_ACTION_ID,
+  HABIT_CHECK_IN_ACTION_ID,
   scheduleTaskReminders,
   snoozeTaskReminder,
   TASK_DONE_ACTION_ID,
@@ -21,6 +22,7 @@ import {
 } from './lib/notifications';
 import { setTaskDone } from './db/repo';
 import { confirmFocusPhase, skipFocusBreak } from './state/focusTimer';
+import { checkInHabit } from './state/queuedActions';
 import { isNative } from './lib/platform';
 import { useUI, type Theme } from './state/ui';
 import { Sidebar } from './components/Sidebar';
@@ -180,13 +182,14 @@ function useNotificationTaps(setTab: (t: 'tasks' | 'focus' | 'habits') => void, 
   useEffect(() => {
     let off: (() => void) | null = null;
     let cancelled = false;
-    void onNotificationTap(({ kind, actionId, taskId }) => {
+    void onNotificationTap(({ kind, actionId, taskId, habitId, date }) => {
       if (kind === 'focus') {
         setTab('focus');
         if (actionId === CONFIRM_ACTION_ID) confirmFocusPhase();
         else if (actionId === SKIP_BREAK_ACTION_ID) skipFocusBreak();
       } else if (kind === 'habit') {
         setTab('habits');
+        if (actionId === HABIT_CHECK_IN_ACTION_ID && habitId && date) void checkInHabit(habitId, date);
       } else if (kind === 'task' && taskId) {
         void (async () => {
           const task = await db.tasks.get(taskId);

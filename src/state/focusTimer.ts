@@ -24,6 +24,7 @@ import {
   finishTotals,
   nextTransition,
   pauseTimer,
+  phaseAt,
   resumeTimer,
   skipBreak,
   skipPhase,
@@ -121,7 +122,44 @@ function syncAlarms(timer: TimerState | null) {
     return;
   }
   const next = nextTransition(timer, Date.now());
-  void scheduleFocusAlarm(next && { at: next.at, to: next.to }, timer.activity);
+  void scheduleFocusAlarm(next && { at: next.at, to: next.to }, timer.activity, { id: timer.id, phases: upcomingPhases(timer) });
+}
+
+/** The phases after the running one (up to 16), so a watch button can start the next while the app is closed. */
+function upcomingPhases(timer: TimerState): { kind: 'focus' | 'break'; ms: number }[] {
+  const out: { kind: 'focus' | 'break'; ms: number }[] = [];
+  for (let i = timer.phaseIndex + 1; out.length < 16; i++) {
+    const p = phaseAt(timer, i);
+    if (!p) break;
+    out.push({ kind: p.kind, ms: p.ms });
+  }
+  return out;
+}
+
+/**
+ * Apply "Start break" / "Start focus" / "Skip break" pressed on a notification
+ * (e.g. on a watch) while the app wasn't running, each at the moment it was
+ * pressed. Timestamps make the replay exact.
+ */
+export async function applyFocusButtonPresses(presses: { at: number; actionId: string; timerId?: string }[]) {
+  let timer = snap.timer;
+  let changed = false;
+  for (const p of [...presses].sort((a, b) => a.at - b.at)) {
+    if (!timer || (p.timerId && p.timerId !== timer.id)) continue;
+    const r = advance(timer, p.at);
+    if (r.finishedAt !== null) {
+      await finalize(r.state, r.finishedAt);
+      return;
+    }
+    timer = r.state;
+    const next = p.actionId === 'skipBreak' ? skipBreak(timer, p.at) : confirmPhase(timer, p.at);
+    if (next !== timer) changed = true;
+    timer = next;
+  }
+  if (!changed || !timer) return;
+  update({ timer });
+  await tick();
+  syncAlarms(snap.timer);
 }
 
 /** A session started from a habit checks that habit in for today when it ends. */

@@ -1,4 +1,4 @@
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 export type RingtoneGroup = 'alarm' | 'notification' | 'ringtone';
 
@@ -23,6 +23,47 @@ export interface FocusAlarmPlugin {
   backgroundStatus(): Promise<{ unrestricted: boolean; exactAlarms: boolean }>;
   requestUnrestricted(): Promise<void>;
   openAppSettings(): Promise<void>;
+  /**
+   * Re-post each notification a second after it appears with buttons that work
+   * without opening the app (on a watch or the lock screen). Replaces the group's earlier set.
+   */
+  setButtonFixes(options: { group: ButtonFixGroup; items: ButtonFix[] }): Promise<void>;
+  /** The focus phases after the showing alarm, so "Start break" on the watch can schedule the next alarm. */
+  setFocusPlan(options: { plan: FocusPlan | null }): Promise<void>;
+  /** Changes made from notification buttons since last asked; the list is emptied. */
+  takeQueuedActions(): Promise<{ actions: QueuedAction[] }>;
+  cancelTaskSnooze(options: { taskId: string }): Promise<void>;
+  addListener(event: 'queuedActions', fn: () => void): Promise<PluginListenerHandle>;
+}
+
+export type ButtonFixGroup = 'task' | 'habit' | 'focus' | 'snooze';
+
+export interface ButtonFix {
+  id: number;
+  /** When the notification appears (ms since epoch). */
+  at: number;
+  /** open: the button opens the app instead of working in the background. */
+  actions: { id: string; title: string; open?: boolean }[];
+  extra: Record<string, unknown>;
+}
+
+export interface FocusPlan {
+  timerId: string;
+  activity: string;
+  channelId: string;
+  /** The phases after the one that is running, in order. */
+  phases: { kind: 'focus' | 'break'; ms: number }[];
+}
+
+/** A notification button pressed while the app may not have been running. */
+export interface QueuedAction {
+  at: number;
+  kind: 'task' | 'habit' | 'focus';
+  actionId: string;
+  taskId?: string;
+  habitId?: string;
+  date?: string;
+  timerId?: string;
 }
 
 const webStub: FocusAlarmPlugin = {
@@ -37,6 +78,11 @@ const webStub: FocusAlarmPlugin = {
   backgroundStatus: async () => ({ unrestricted: true, exactAlarms: true }),
   requestUnrestricted: async () => undefined,
   openAppSettings: async () => undefined,
+  setButtonFixes: async () => undefined,
+  setFocusPlan: async () => undefined,
+  takeQueuedActions: async () => ({ actions: [] }),
+  cancelTaskSnooze: async () => undefined,
+  addListener: async () => ({ remove: async () => undefined }),
 };
 
 export const FocusAlarm = registerPlugin<FocusAlarmPlugin>('FocusAlarm', { web: () => Promise.resolve(webStub) });

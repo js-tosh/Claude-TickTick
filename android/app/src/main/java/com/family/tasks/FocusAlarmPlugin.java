@@ -37,6 +37,20 @@ public class FocusAlarmPlugin extends Plugin {
 
     private Ringtone preview;
 
+    /** The running app's plugin, so a notification button can tell the app straight away. */
+    private static FocusAlarmPlugin instance;
+
+    @Override
+    public void load() {
+        instance = this;
+    }
+
+    /** Tell the app (if it is running) that notification buttons queued changes for it. */
+    static void emitQueued() {
+        FocusAlarmPlugin p = instance;
+        if (p != null) p.notifyListeners("queuedActions", new JSObject(), true);
+    }
+
     private static AudioAttributes alarmAttributes() {
         return new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ALARM)
@@ -192,9 +206,62 @@ public class FocusAlarmPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Stops the extra rings and any focus alarm started from a notification button. */
     @PluginMethod
     public void cancelRings(PluginCall call) {
         FocusRingReceiver.cancel(getContext());
+        NotificationActions.clearFocus(getContext());
+        call.resolve();
+    }
+
+    /**
+     * Re-post each notification just after it appears, with buttons that work
+     * without opening the app (see NotificationActions). Replaces the group's
+     * earlier ones. items: [{ id, at, actions: [{ id, title, open? }], extra }]
+     */
+    @PluginMethod
+    public void setButtonFixes(PluginCall call) {
+        String group = call.getString("group", "");
+        NotificationActions.cancelFixes(getContext(), group);
+        JSONArray items = call.getArray("items");
+        if (items != null) {
+            for (int i = 0; i < items.length(); i++) {
+                org.json.JSONObject it = items.optJSONObject(i);
+                if (it == null) continue;
+                JSONArray actions = it.optJSONArray("actions");
+                org.json.JSONObject extra = it.optJSONObject("extra");
+                NotificationActions.scheduleFix(
+                    getContext(),
+                    group,
+                    it.optInt("id"),
+                    it.optLong("at") + 1000,
+                    actions == null ? new JSONArray() : actions,
+                    extra == null ? new org.json.JSONObject() : extra
+                );
+            }
+        }
+        call.resolve();
+    }
+
+    /** The focus phases that follow the showing alarm, for a "Start break" pressed on the watch. */
+    @PluginMethod
+    public void setFocusPlan(PluginCall call) {
+        JSObject plan = call.getObject("plan");
+        NotificationActions.setFocusPlan(getContext(), plan == null ? null : plan.toString());
+        call.resolve();
+    }
+
+    /** Changes made from notification buttons since the app last looked (and empties the list). */
+    @PluginMethod
+    public void takeQueuedActions(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("actions", NotificationActions.takeQueue(getContext()));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void cancelTaskSnooze(PluginCall call) {
+        NotificationActions.cancelSnooze(getContext(), call.getString("taskId", ""));
         call.resolve();
     }
 
